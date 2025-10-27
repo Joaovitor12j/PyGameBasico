@@ -10,6 +10,7 @@
 
 import pygame
 import random
+import os
 
 # Cores
 BLACK = (0, 0, 0)
@@ -27,23 +28,36 @@ SCREEN_HEIGHT = CELL_SIZE * GRID_SIZE
 
 pygame.init()
 
+# Caminho base dos assets relativo a este arquivo
+ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Inicializa o mixer de áudio ANTES de carregar o som
+explosion_sound = None
 try:
     pygame.mixer.init()
-    explosion_sound = pygame.mixer.Sound("explosao.mp3")  # Tente usar .wav
-    explosion_sound.set_volume(1.0)  # Defina o volume máximo
-except pygame.error as e:
-    print(f"Erro ao carregar som: {e}")
-    explosion_sound = None  # Garante que explosion_sound seja None em caso de erro
+    # Tenta localizar o arquivo de som em formatos comuns dentro da pasta do jogo
+    for fname in ("explosao.mp3", "explosao.wav"):
+        sound_path = os.path.join(ASSET_DIR, fname)
+        if os.path.exists(sound_path):
+            explosion_sound = pygame.mixer.Sound(sound_path)
+            explosion_sound.set_volume(1.0)
+            break
+    if explosion_sound is None:
+        print("Aviso: arquivo de som de explosão não encontrado (explosao.mp3/.wav). O jogo continuará sem áudio.")
+except Exception as e:
+    # Captura erros do mixer ou de carregamento do som sem encerrar o jogo
+    print(f"Aviso: não foi possível inicializar áudio ou carregar som: {e}")
+    explosion_sound = None
 
 screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
 pygame.display.set_caption("Campo Minado com Sprites")
 
 # Carrega a imagem das células
 try:
-    cell_images = pygame.image.load("celulas.png")
-except pygame.error as e:
-    print(f"Erro ao carregar 'celulas.png': {e}")
+    image_path = os.path.join(ASSET_DIR, "celulas.png")
+    cell_images = pygame.image.load(image_path)
+except Exception as e:
+    print(f"Erro ao carregar 'celulas.png' em {image_path}: {e}")
     pygame.quit()
     exit()
 

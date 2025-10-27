@@ -1,6 +1,7 @@
 import pygame
 import random
 import sys
+import os
 
 # Inicializa o PyGame
 pygame.init()
@@ -15,8 +16,14 @@ BG_COLOR = (0, 100, 255)  # céu azul
 
 # Carregamento de sprites (usaremos retângulos coloridos como placeholders aqui)
 # Na implementação real, substitua por imagens carregadas com pygame.image.load()
-background_img = pygame.image.load('Assets/Ocean_8/6.png')
-background_img = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
+ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
+background_img = None
+try:
+    bg_path = os.path.join(ASSET_DIR, 'Assets', 'Ocean_8', '6.png')
+    background_img = pygame.image.load(bg_path)
+    background_img = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
+except Exception as e:
+    print(f"Aviso: fundo não pôde ser carregado em {bg_path}: {e}. Usando cor sólida de fundo.")
 
 
 # Sprites (poderiam ser substituídos por imagens reais)
@@ -175,7 +182,8 @@ while running:
     # Desenho na tela
     screen.fill(BG_COLOR)
     # Antes de desenhar outros elementos, insira:
-    screen.blit(background_img, (0, 0))
+    if background_img:
+        screen.blit(background_img, (0, 0))
     # Desenha o mar
     screen.blit(sea_sprite, sea_rect)
     # Desenha o porto
