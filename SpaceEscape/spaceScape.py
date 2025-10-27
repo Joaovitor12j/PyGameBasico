@@ -17,6 +17,9 @@ import os
 # Inicializa o PyGame
 pygame.init()
 
+# Caminho base dos assets relativo a este arquivo
+ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ----------------------------------------------------------
 # 🔧 CONFIGURAÇÕES GERAIS DO JOGO
 # ----------------------------------------------------------
@@ -50,10 +53,15 @@ BLUE = (60, 100, 255)
 # Tela do jogo
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 
+# Resolvedor de caminho relativo aos assets
+def resolve_path(name):
+    return name if os.path.isabs(name) else os.path.join(ASSET_DIR, name)
+
 # Função auxiliar para carregar imagens de forma segura
 def load_image(filename, fallback_color, size=None):
-    if os.path.exists(filename):
-        img = pygame.image.load(filename).convert_alpha()
+    path = resolve_path(filename)
+    if os.path.exists(path):
+        img = pygame.image.load(path).convert_alpha()
         if size:
             img = pygame.transform.scale(img, size)
         return img
@@ -70,18 +78,23 @@ meteor_img = load_image(ASSETS["meteor"], RED, (40, 40))
 
 # Sons
 def load_sound(filename):
-    if os.path.exists(filename):
-        return pygame.mixer.Sound(filename)
+    path = resolve_path(filename)
+    if os.path.exists(path):
+        return pygame.mixer.Sound(path)
     return None
 
 sound_point = load_sound(ASSETS["sound_point"])
 sound_hit = load_sound(ASSETS["sound_hit"])
 
 # Música de fundo (opcional)
-if os.path.exists(ASSETS["music"]):
-    pygame.mixer.music.load(ASSETS["music"])
-    pygame.mixer.music.set_volume(0.3)
-    pygame.mixer.music.play(-1)  # loop infinito
+music_path = resolve_path(ASSETS["music"])
+if os.path.exists(music_path):
+    try:
+        pygame.mixer.music.load(music_path)
+        pygame.mixer.music.set_volume(0.3)
+        pygame.mixer.music.play(-1)  # loop infinito
+    except Exception as e:
+        print(f"Aviso: não foi possível tocar música de fundo em {music_path}: {e}")
 
 # ----------------------------------------------------------
 # 🧠 VARIÁVEIS DE JOGO
