@@ -103,25 +103,25 @@ meteor_images = [meteor_img, meteor_img2]
 SAVE_PATH = os.path.join(ASSET_DIR, "savegame.json")
 
 # Helpers para estado
-def build_meteors(cfg):
-    meteor_list = []
-    for _ in range(cfg["meteors"]):
+def build_meteors(selected_difficulty):
+    build_meteor_list = []
+    for _ in range(selected_difficulty["meteors"]):
         x = random.randint(0, WIDTH - 40)
         y = random.randint(-500, -40)
-        rect = pygame.Rect(x, y, 40, 40)
-        speed = random.randint(cfg["speed_min"], cfg["speed_max"])
+        bm_rect = pygame.Rect(x, y, 40, 40)
+        speed = random.randint(selected_difficulty["speed_min"], selected_difficulty["speed_max"])
         img = random.choice(meteor_images)
-        meteor_list.append({"rect": rect, "img": img, "speed": speed})
-    return meteor_list
+        build_meteor_list.append({"rect": bm_rect, "img": img, "speed": speed})
+    return build_meteor_list
 
 def create_new_game_state():
-    cfg = DIFFICULTIES[current_difficulty]
+    selected_difficulty = DIFFICULTIES[current_difficulty]
     state = {
         "difficulty": current_difficulty,
         "player_rect": player_img.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
         "score": 0,
-        "lives": cfg["lives"],
-        "meteors": build_meteors(cfg),
+        "lives": selected_difficulty["lives"],
+        "meteors": build_meteors(selected_difficulty),
     }
     return state
 
@@ -150,21 +150,21 @@ def load_game_state():
             data = json.load(f)
         diff = data.get("difficulty", "Normal")
         # Ajusta configuração e recria meteoros
-        cfg = DIFFICULTIES.get(diff, DIFFICULTIES["Normal"])
+        selected_difficulty = DIFFICULTIES.get(diff, DIFFICULTIES["Normal"])
         state = {
             "difficulty": diff,
             "player_rect": player_img.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
             "score": int(data.get("score", 0)),
-            "lives": int(data.get("lives", cfg["lives"])),
-            "meteors": build_meteors(cfg),
+            "lives": int(data.get("lives", selected_difficulty["lives"])),
+            "meteors": build_meteors(selected_difficulty),
         }
         # Reposiciona player se existir no save
         p = data.get("player", {})
         state["player_rect"].x = int(p.get("x", state["player_rect"].x))
         state["player_rect"].y = int(p.get("y", state["player_rect"].y))
         return state
-    except Exception as e:
-        print(f"Aviso: falha ao carregar jogo: {e}")
+    except Exception as exception:
+        print(f"Aviso: falha ao carregar jogo: {exception}")
         return None
 
 # ----------------------------------------------------------
