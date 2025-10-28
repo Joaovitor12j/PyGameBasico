@@ -22,7 +22,8 @@ ASSETS = {
     "background": "fundo_espacial.png",                         # imagem de fundo
     "background_menu": "fundo_menu.png",                        # imagem de fundo
     "endgame_bg": "endgame.png",                                # imagem da tela de fim de jogo
-    "player": "nave001.png",                                    # imagem da nave
+    "player": "nave1.png",                                      # imagem da nave (padrão/idle/baixo)
+    "player_up": "nave2.png",                                   # imagem da nave quando movendo para cima
     "meteor": "meteoro001.png",                                 # imagem do meteoro
     "meteor2": "meteoro002.png",                                # imagem do meteoro
     "sound_point": "classic-game-action-positive-5-224402.mp3", # som ao desviar com sucesso
@@ -63,7 +64,10 @@ def load_image(filename, fallback_color, size=None):
 background = load_image(ASSETS["background"], WHITE, (WIDTH, HEIGHT))
 background_menu = load_image(ASSETS["background_menu"], WHITE, (WIDTH, HEIGHT))
 endgame_bg = load_image(ASSETS["endgame_bg"], WHITE, (WIDTH, HEIGHT))
-player_img = load_image(ASSETS["player"], BLUE, (80, 60))
+# Sprites da nave: idle/baixo e subindo
+player_img_idle = load_image(ASSETS["player"], BLUE, (140, 100))
+player_img_up = load_image(ASSETS.get("player_up", ASSETS["player"]), BLUE, (140, 100))
+current_player_img = player_img_idle
 meteor_img = load_image(ASSETS["meteor"], RED, (40, 40))
 meteor_img2 = load_image(ASSETS["meteor2"], YELLOW, (40, 40))
 
@@ -120,7 +124,7 @@ def create_new_game_state():
     selected_difficulty = DIFFICULTIES[current_difficulty]
     state = {
         "difficulty": current_difficulty,
-        "player_rect": player_img.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
+        "player_rect": player_img_idle.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
         "score": 0,
         "lives": selected_difficulty["lives"],
         "meteors": build_meteors(selected_difficulty),
@@ -171,7 +175,7 @@ def load_game_state():
         selected_difficulty = DIFFICULTIES.get(diff, DIFFICULTIES["Normal"])
         state = {
             "difficulty": diff,
-            "player_rect": player_img.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
+            "player_rect": player_img_idle.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
             "score": int(data.get("score", 0)),
             "lives": int(data.get("lives", selected_difficulty["lives"])),
             "meteors": build_meteors(selected_difficulty),
@@ -312,6 +316,13 @@ while running:
         player_rect.y -= player_speed
     if keys[pygame.K_DOWN] and player_rect.bottom < HEIGHT:
         player_rect.y += player_speed
+
+    # Alterar sprite conforme movimento vertical
+    if keys[pygame.K_UP]:
+        current_player_img = player_img_up
+    else:
+        # Parado ou movendo para baixo usa nave1
+        current_player_img = player_img_idle
     # --- Movimento dos meteoros ---
     for m in meteor_list:
         rect = m["rect"]
@@ -348,7 +359,7 @@ while running:
                 running = False
 
     # --- Desenha tudo ---
-    screen.blit(player_img, player_rect)
+    screen.blit(current_player_img, player_rect)
     for m in meteor_list:
         screen.blit(m["img"], m["rect"])
 
