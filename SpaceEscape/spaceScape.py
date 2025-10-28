@@ -21,6 +21,7 @@ pygame.display.set_caption("🚀 Space Escape")
 ASSETS = {
     "background": "fundo_espacial.png",                         # imagem de fundo
     "background_menu": "fundo_menu.png",                        # imagem de fundo
+    "endgame_bg": "endgame.png",                                # imagem da tela de fim de jogo
     "player": "nave001.png",                                    # imagem da nave
     "meteor": "meteoro001.png",                                 # imagem do meteoro
     "meteor2": "meteoro002.png",                                # imagem do meteoro
@@ -61,6 +62,7 @@ def load_image(filename, fallback_color, size=None):
 # Carrega imagens
 background = load_image(ASSETS["background"], WHITE, (WIDTH, HEIGHT))
 background_menu = load_image(ASSETS["background_menu"], WHITE, (WIDTH, HEIGHT))
+endgame_bg = load_image(ASSETS["endgame_bg"], WHITE, (WIDTH, HEIGHT))
 player_img = load_image(ASSETS["player"], BLUE, (80, 60))
 meteor_img = load_image(ASSETS["meteor"], RED, (40, 40))
 meteor_img2 = load_image(ASSETS["meteor2"], YELLOW, (40, 40))
@@ -125,21 +127,37 @@ def create_new_game_state():
     }
     return state
 
+def get_saved_highscore():
+    try:
+        import json
+        if not os.path.exists(SAVE_PATH):
+            return 0
+        with open(SAVE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return int(data.get("highscore", 0))
+    except Exception:
+        return 0
+
+
 def save_game(state):
     try:
+        # Atualiza e persiste o highscore
+        prev_high = get_saved_highscore()
+        new_high = max(prev_high, int(state["score"]))
         data = {
             "difficulty": state["difficulty"],
-            "score": state["score"],
-            "lives": state["lives"],
-            "player": {"x": state["player_rect"].x, "y": state["player_rect"].y},
+            "score": int(state["score"]),
+            "lives": int(state["lives"]),
+            "player": {"x": int(state["player_rect"].x), "y": int(state["player_rect"].y)},
+            "highscore": new_high,
         }
         import json
         with open(SAVE_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f)
-        return True
+        return new_high
     except Exception as e:
         print(f"Aviso: falha ao salvar jogo: {e}")
-        return False
+        return None
 
 def load_game_state():
     try:
@@ -314,7 +332,12 @@ while running:
         # Colisão
         if rect.colliderect(player_rect):
             lives -= 1
-            score -= 10
+            if score > 0 and score < 50 == 0:
+                score -= 2
+            elif score > 50:
+                score -= 5
+            elif score < 0:
+                score = 0
             rect.y = random.randint(-100, -40)
             rect.x = random.randint(0, WIDTH - rect.width)
             cfg = DIFFICULTIES.get(current_difficulty, DIFFICULTIES["Normal"])
@@ -338,20 +361,40 @@ while running:
 # ----------------------------------------------------------
 # 🏁 TELA DE FIM DE JOGO
 # ----------------------------------------------------------
-# Salvar jogo automaticamente (estado final)
-save_game({
+# Salvar jogo automaticamente (estado final) e obter highscore
+new_high = save_game({
     "difficulty": current_difficulty,
     "player_rect": player_rect,
     "score": score,
     "lives": lives,
 })
+if new_high is None:
+    new_high = get_saved_highscore()
 
 pygame.mixer.music.stop()
-screen.fill((20, 20, 20))
-end_text = font.render("Fim de jogo! Pressione qualquer tecla para sair.", True, WHITE)
-final_score = font.render(f"Pontuação final: {score}", True, WHITE)
-screen.blit(end_text, (150, 260))
-screen.blit(final_score, (300, 300))
+
+# Desenhar tela final com imagem de fundo
+screen.blit(endgame_bg, (0, 0))
+
+# Título "GAME OVER" em vermelho
+big_font = pygame.font.Font(None, 96)
+end_title = big_font.render("GAME OVER", True, (255, 0, 0))
+screen.blit(end_title, (WIDTH // 2 - end_title.get_width() // 2, 120))
+
+# Informações: fase (dificuldade), pontuação atual e maior pontuação
+info_font = pygame.font.Font(None, 48)
+label_fase = info_font.render(f"Fase: {current_difficulty}", True, WHITE)
+label_score = info_font.render(f"Pontuação: {score}", True, WHITE)
+label_high = info_font.render(f"Maior pontuação: {new_high}", True, WHITE)
+
+center_x = WIDTH // 2
+start_y = 260
+for i, surf in enumerate([label_fase, label_score, label_high]):
+    screen.blit(surf, (center_x - surf.get_width() // 2, start_y + i * 50))
+
+hint = font.render("Pressione qualquer tecla para sair", True, WHITE)
+screen.blit(hint, (center_x - hint.get_width() // 2, HEIGHT - 80))
+
 pygame.display.flip()
 
 waiting = True
