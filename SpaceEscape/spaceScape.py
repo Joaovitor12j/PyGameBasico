@@ -1,15 +1,3 @@
-##############################################################
-###               S P A C E     E S C A P E                ###
-##############################################################
-###                  versao Alpha 0.3                      ###
-##############################################################
-### Objetivo: desviar dos meteoros que caem.               ###
-### Cada colisão tira uma vida. Sobreviva o máximo que     ###
-### conseguir!                                             ###
-##############################################################
-### Prof. Filipo Novo Mor - github.com/ProfessorFilipo     ###
-##############################################################
-
 import pygame
 import random
 import os
@@ -30,15 +18,9 @@ WIDTH, HEIGHT = 800, 600
 FPS = 60
 pygame.display.set_caption("🚀 Space Escape")
 
-# ----------------------------------------------------------
-# 🧩 SEÇÃO DE ASSETS (os alunos podem trocar os arquivos aqui)
-# ----------------------------------------------------------
-# Dica: coloque as imagens e sons na mesma pasta do arquivo .py
-# e troque apenas os nomes abaixo.
-
 ASSETS = {
     "background": "fundo_espacial.png",                         # imagem de fundo
-    "background_menu": "fundo_menu.png",                         # imagem de fundo
+    "background_menu": "fundo_menu.png",                        # imagem de fundo
     "player": "nave001.png",                                    # imagem da nave
     "meteor": "meteoro001.png",                                 # imagem do meteoro
     "meteor2": "meteoro002.png",                                # imagem do meteoro
@@ -66,10 +48,10 @@ def resolve_path(name):
 def load_image(filename, fallback_color, size=None):
     path = resolve_path(filename)
     if os.path.exists(path):
-        img = pygame.image.load(path).convert_alpha()
+        imagem_load = pygame.image.load(path).convert_alpha()
         if size:
-            img = pygame.transform.scale(img, size)
-        return img
+            imagem_load = pygame.transform.scale(imagem_load, size)
+        return imagem_load
     else:
         # Gera uma superfície simples colorida se a imagem não existir
         surf = pygame.Surface(size or (50, 50))
