@@ -63,6 +63,8 @@ class Colors:
 # Assets
 ASSETS = {
     "background_level_1": "level_1.png",
+    "background_level_2": "level_2.png",
+    "background_level_3": "level_3.png",
     "background_menu": "fundo_menu.png",
     "endgame_bg": "endgame.png",
     "player": "nave1.png",
@@ -294,10 +296,12 @@ class SpaceEscape:
     def _load_resources(self):
         """Carrega todos os recursos do jogo"""
         # Imagens
-        self.bg_level = self.resources.load_image(
-            "bg_level", ASSETS["background_level_1"],
-            (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE
-        )
+        # Planos de fundo por fase
+        self.bg_levels = [
+            self.resources.load_image("bg_level_1", ASSETS["background_level_1"], (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE),
+            self.resources.load_image("bg_level_2", ASSETS["background_level_2"], (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE),
+            self.resources.load_image("bg_level_3", ASSETS["background_level_3"], (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE),
+        ]
         self.bg_menu = self.resources.load_image(
             "bg_menu", ASSETS["background_menu"],
             (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE
@@ -380,6 +384,16 @@ class SpaceEscape:
         """Retorna pontuação necessária para completar a fase atual"""
         return self.config.PHASE_TARGET_BASE * (self.phase + 1)
 
+    def _get_bg_for_current_phase(self) -> pygame.Surface:
+        """Retorna o background correspondente à fase atual.
+        Mapeamento: fase 1->bg1, fase 2->bg2, fase 3+->bg3."""
+        idx = 0
+        if self.phase >= 2:
+            idx = 2
+        elif self.phase == 1:
+            idx = 1
+        return self.bg_levels[idx]
+
     def _handle_meteor_collision(self):
         """Processa colisão com meteoro"""
         self.lives -= 1
@@ -436,7 +450,7 @@ class SpaceEscape:
 
     def draw_gameplay(self):
         """Desenha o gameplay"""
-        self.screen.blit(self.bg_level, (0, 0))
+        self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
         self.player.draw(self.screen)
 
         for meteor in self.meteors:
@@ -451,7 +465,7 @@ class SpaceEscape:
 
     def draw_phase_victory(self):
         """Desenha tela de vitória da fase"""
-        self.screen.blit(self.bg_level, (0, 0))
+        self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
 
         title = self.font_large.render("Fase vencida!", True, Colors.YELLOW)
         phase_label = self.font_small.render(
