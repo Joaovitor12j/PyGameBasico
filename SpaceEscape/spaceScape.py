@@ -175,20 +175,25 @@ class Player:
         self.current_img = idle_img
         self.moving_up = False
 
+    def move_to_position(self, x: int, y: int, screen_width: int, screen_height: int):
+        half_w, half_h = self.rect.width // 2, self.rect.height // 2
+        clamped_x = max(half_w, min(screen_width - half_w, x))
+        clamped_y = max(half_h, min(screen_height - half_h, y))
+        self.rect.center = (clamped_x, clamped_y)
+
     def update(self, keys, screen_width: int, screen_height: int):
-        """Atualiza posição baseado nas teclas pressionadas"""
-        # Movimento horizontal
-        if keys[pygame.K_LEFT] and self.rect.left > 0:
+        # Movimento horizontal (Setas e WASD)
+        if (keys[pygame.K_LEFT] or keys[pygame.K_a]) and self.rect.left > 0:
             self.rect.x -= self.speed
-        if keys[pygame.K_RIGHT] and self.rect.right < screen_width:
+        if (keys[pygame.K_RIGHT] or keys[pygame.K_d]) and self.rect.right < screen_width:
             self.rect.x += self.speed
 
-        # Movimento vertical
+        # Movimento vertical (Setas e WASD)
         self.moving_up = False
-        if keys[pygame.K_UP] and self.rect.top > 0:
+        if (keys[pygame.K_UP] or keys[pygame.K_w]) and self.rect.top > 0:
             self.rect.y -= self.speed
             self.moving_up = True
-        if keys[pygame.K_DOWN] and self.rect.bottom < screen_height:
+        if (keys[pygame.K_DOWN] or keys[pygame.K_s]) and self.rect.bottom < screen_height:
             self.rect.y += self.speed
 
         # Atualiza sprite
@@ -638,6 +643,10 @@ class SpaceEscape:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
+                    elif event.type == pygame.MOUSEMOTION:
+                        self.player.move_to_position(event.pos[0], event.pos[1], self.config.WIDTH, self.config.HEIGHT)
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
+                        self.player.move_to_position(event.pos[0], event.pos[1], self.config.WIDTH, self.config.HEIGHT)
 
                 if running:
                     self.update_gameplay()
