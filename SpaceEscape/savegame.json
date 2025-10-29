@@ -1,1 +1,13 @@
-{"difficulty": "Normal", "score": 9, "lives": 0, "phase": 0, "player": {"x": 360, "y": 510}, "highscore": 91}
+{
+  "difficulty": "Normal",
+  "score": 28,
+  "lives": 0,
+  "phase": 0,
+  "player": {
+    "x": 519,
+    "y": 540
+  },
+  "items_collected": 0,
+  "boss_defeated": false,
+  "highscore": 4395
+}

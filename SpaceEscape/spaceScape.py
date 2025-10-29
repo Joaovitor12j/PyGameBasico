@@ -47,9 +47,9 @@ class DifficultyConfig:
 
 # Dificuldades disponíveis
 DIFFICULTIES = {
-    "Fácil": DifficultyConfig(meteors=5, speed_min=2, speed_max=5, lives=5),
-    "Normal": DifficultyConfig(meteors=8, speed_min=3, speed_max=7, lives=3),
-    "Difícil": DifficultyConfig(meteors=12, speed_min=4, speed_max=9, lives=2),
+    "Fácil": DifficultyConfig(meteors=3, speed_min=2, speed_max=4, lives=20),
+    "Normal": DifficultyConfig(meteors=6, speed_min=3, speed_max=6, lives=10),
+    "Difícil": DifficultyConfig(meteors=10, speed_min=4, speed_max=8, lives=5),
 }
 
 # Cores
@@ -73,7 +73,8 @@ ASSETS = {
     "meteor2": "meteoro002.png",
     "sound_point": "classic-game-action-positive-5-224402.mp3",
     "sound_hit": "stab-f-01-brvhrtz-224599.mp3",
-    "music": "game-gaming-background-music-385611.mp3"
+    "music": "game-gaming-background-music-385611.mp3",
+    "item_collect": "star.png",
 }
 
 # Dimensões padrão
@@ -81,6 +82,7 @@ class Sizes:
     PLAYER_IDLE = (80, 60)
     PLAYER_UP = (200, 140)
     METEOR = (40, 40)
+    ITEM = (32, 32)
     PLAYER_SPEED = 7
 
 # =============================================================================
@@ -164,6 +166,21 @@ class Meteor:
 
     def draw(self, screen: pygame.Surface):
         """Desenha o meteoro"""
+        screen.blit(self.image, self.rect)
+
+class Item:
+    """Representa um item coletável"""
+    def __init__(self, x: int, y: int, speed: int, image: pygame.Surface):
+        self.rect = pygame.Rect(x, y, Sizes.ITEM[0], Sizes.ITEM[1])
+        self.speed = speed
+        self.image = image
+
+    def update(self, screen_height: int) -> bool:
+        """Move para baixo. Retorna True se saiu da tela."""
+        self.rect.y += self.speed
+        return self.rect.y > screen_height
+
+    def draw(self, screen: pygame.Surface):
         screen.blit(self.image, self.rect)
 
 class Player:
@@ -292,6 +309,9 @@ class SpaceEscape:
         # Progresso por fase
         self.items_collected = 0  # Itens coletados na fase atual
         self.boss_defeated = False  # Status do chefe (usado na fase 3)
+        # Itens coletáveis e agendamento de spawn
+        self.items: List[Item] = []
+        self.next_item_spawn_score: Optional[int] = None
 
         # Fontes
         self.font_large = pygame.font.Font(None, 96)
@@ -331,6 +351,11 @@ class SpaceEscape:
                                       Sizes.METEOR, Colors.YELLOW)
         ]
 
+        # Item coletável
+        self.item_img = self.resources.load_image(
+            "item_collect", ASSETS["item_collect"], Sizes.ITEM, Colors.YELLOW
+        )
+
         # Sons
         self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
         self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"])
@@ -355,11 +380,14 @@ class SpaceEscape:
         self.phase = 0
         self.items_collected = 0
         self.boss_defeated = False
+        self.items = []
+        self.next_item_spawn_score = None
         self.player = Player(
             self.config.WIDTH // 2, self.config.HEIGHT - 60,
             self.player_idle, self.player_up
         )
         self.meteors = self._create_meteors(diff_config.scale_for_phase(0))
+        self._reset_item_spawn_schedule()
         self.state = GameState.PLAYING
 
     def load_game(self) -> bool:
@@ -375,6 +403,9 @@ class SpaceEscape:
         # Progresso por fase
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
+        # Itens ativos no mundo (não persistidos)
+        self.items = []
+        self.next_item_spawn_score = None
 
         diff_config = DIFFICULTIES[self.difficulty]
         self.player = Player(
@@ -388,6 +419,7 @@ class SpaceEscape:
             self.player.rect.y = player_data.get("y", self.player.rect.y)
 
         self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self._reset_item_spawn_schedule()
         self.state = GameState.PLAYING
         return True
 
@@ -437,9 +469,42 @@ class SpaceEscape:
             idx = 1
         return self.bg_levels[idx]
 
+    # =============================
+    # Itens coletáveis - Fase 2 e 3
+    # =============================
+    def _is_item_enabled(self) -> bool:
+        """Itens aparecem a partir da Fase 2 (phase==1) e Fase 3+ (phase>=2)."""
+        return self.phase >= 1
+
+    def _item_speed_for_phase(self) -> int:
+        """Velocidade do item por fase: Fase 2 -> 7, Fase 3+ -> 8."""
+        return 7 if self.phase == 1 else 8
+
+    def _next_multiple_of_20_above(self, value: int) -> int:
+        rem = value % 20
+        return value + (20 - rem) if rem != 0 else value + 20
+
+    def _reset_item_spawn_schedule(self):
+        """Inicializa o próximo marco de pontuação para spawn de item."""
+        if self._is_item_enabled():
+            self.next_item_spawn_score = self._next_multiple_of_20_above(self.score)
+        else:
+            self.next_item_spawn_score = None
+
+    def _spawn_item(self):
+        """Cria um item no topo com posição X aleatória.
+        Garante que apenas um item esteja ativo por vez."""
+        # Salvaguarda adicional: não spawna se já existe item ativo
+        if len(self.items) > 0:
+            return
+        x = random.randint(0, self.config.WIDTH - Sizes.ITEM[0])
+        y = random.randint(-200, -40)
+        speed = self._item_speed_for_phase()
+        self.items.append(Item(x, y, speed, self.item_img))
+
     def _handle_meteor_collision(self):
         """Processa colisão com meteoro"""
-        self.lives -= 1
+        self.lives -= 1 # Dano de vida
 
         # Penalidade de pontos (BUG CORRIGIDO)
         if 0 < self.score < 50:
@@ -456,6 +521,10 @@ class SpaceEscape:
         # Reseta progresso específico da fase
         self.items_collected = 0
         self.boss_defeated = False
+        # Limpa itens e reprograma spawns para a nova fase
+        self.items = []
+        self._reset_item_spawn_schedule()
+        # Reposiciona jogador e recria meteoros com dificuldade escalada
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
         self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
@@ -475,7 +544,7 @@ class SpaceEscape:
                 meteor.randomize_position(self.config.WIDTH)
                 meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
                 meteor.image = random.choice(self.meteor_imgs)
-                self.score += 1
+                self.score += 1 # Pontuação do meteoro
                 if self.sound_point:
                     self.sound_point.play()
 
@@ -489,6 +558,29 @@ class SpaceEscape:
                     self.state = GameState.GAME_OVER
                     return
 
+        # Spawns de itens por pontuação (Fase 2 e 3) — apenas 1 por vez e exatamente a cada +20 pontos
+        if self._is_item_enabled():
+            if self.next_item_spawn_score is None:
+                self._reset_item_spawn_schedule()
+            # Apenas quando cruza o limiar atual; sem acumular múltiplos
+            if self.next_item_spawn_score is not None and self.score >= self.next_item_spawn_score:
+                if len(self.items) == 0:
+                    self._spawn_item()
+                # Avança o agendamento para o próximo múltiplo de 20 sempre
+                self.next_item_spawn_score += 20
+
+        # Atualiza itens e checa coleta
+        for item in self.items[:]:
+            if item.update(self.config.HEIGHT):
+                # Saiu da tela
+                self.items.remove(item)
+                continue
+            if item.rect.colliderect(self.player.rect):
+                self.items.remove(item)
+                self.items_collected += 1
+                if self.sound_point:
+                    self.sound_point.play()
+
         # Verifica vitória da fase (todas as condições desta fase)
         if self._has_phase_victory():
             self.state = GameState.PHASE_VICTORY
@@ -497,10 +589,15 @@ class SpaceEscape:
     def draw_gameplay(self):
         """Desenha o gameplay"""
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
-        self.player.draw(self.screen)
 
+        # Desenha meteoros e itens
         for meteor in self.meteors:
             meteor.draw(self.screen)
+        for item in self.items:
+            item.draw(self.screen)
+
+        # Por último, o jogador por cima
+        self.player.draw(self.screen)
 
         # HUD linha 1
         hud_text = self.font_tiny.render(
