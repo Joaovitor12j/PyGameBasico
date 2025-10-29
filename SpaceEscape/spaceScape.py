@@ -219,7 +219,8 @@ class SaveManager:
         self.save_path = save_path
 
     def save(self, difficulty: str, score: int, lives: int,
-             phase: int, player_pos: tuple) -> int:
+             phase: int, player_pos: tuple,
+             items_collected: int = 0, boss_defeated: bool = False) -> int:
         """Salva o jogo e retorna o highscore atualizado"""
         try:
             highscore = max(self.get_highscore(), score)
@@ -229,6 +230,8 @@ class SaveManager:
                 "lives": lives,
                 "phase": phase,
                 "player": {"x": player_pos[0], "y": player_pos[1]},
+                "items_collected": items_collected,
+                "boss_defeated": boss_defeated,
                 "highscore": highscore
             }
             with open(self.save_path, "w", encoding="utf-8") as f:
@@ -286,6 +289,9 @@ class SpaceEscape:
         self.meteors: List[Meteor] = []
         self.player = None
         self.phase_victory_end = None
+        # Progresso por fase
+        self.items_collected = 0  # Itens coletados na fase atual
+        self.boss_defeated = False  # Status do chefe (usado na fase 3)
 
         # Fontes
         self.font_large = pygame.font.Font(None, 96)
@@ -347,6 +353,8 @@ class SpaceEscape:
         self.score = 0
         self.lives = diff_config.lives
         self.phase = 0
+        self.items_collected = 0
+        self.boss_defeated = False
         self.player = Player(
             self.config.WIDTH // 2, self.config.HEIGHT - 60,
             self.player_idle, self.player_up
@@ -364,6 +372,9 @@ class SpaceEscape:
         self.score = data.get("score", 0)
         self.lives = data.get("lives", 3)
         self.phase = data.get("phase", 0)
+        # Progresso por fase
+        self.items_collected = data.get("items_collected", 0)
+        self.boss_defeated = data.get("boss_defeated", False)
 
         diff_config = DIFFICULTIES[self.difficulty]
         self.player = Player(
@@ -381,8 +392,40 @@ class SpaceEscape:
         return True
 
     def _get_phase_target(self) -> int:
-        """Retorna pontuação necessária para completar a fase atual"""
-        return self.config.PHASE_TARGET_BASE * (self.phase + 1)
+        """Retorna pontuação necessária para completar a fase atual segundo as regras:
+        Fase 1: 100+ pontos
+        Fase 2: 250+ pontos
+        Fase 3+: 350+ pontos
+        """
+        if self.phase == 0:
+            return 100
+        elif self.phase == 1:
+            return 250
+        else:
+            return 350
+
+    def _get_phase_required_items(self) -> int:
+        """Quantidade de itens necessários para a fase atual (F2 e F3 requerem 3)"""
+        if self.phase >= 1:
+            return 3
+        return 0
+
+    def _is_boss_required(self) -> bool:
+        """Indica se a fase atual requer derrotar chefe (Fase 3 em diante)"""
+        return self.phase >= 2
+
+    def _has_phase_victory(self) -> bool:
+        """Valida as condições de vitória da fase atual."""
+        # Pontos
+        if self.score < self._get_phase_target():
+            return False
+        # Itens
+        if self.items_collected < self._get_phase_required_items():
+            return False
+        # Chefe (se requerido)
+        if self._is_boss_required() and not self.boss_defeated:
+            return False
+        return True
 
     def _get_bg_for_current_phase(self) -> pygame.Surface:
         """Retorna o background correspondente à fase atual.
@@ -410,6 +453,9 @@ class SpaceEscape:
     def _advance_phase(self):
         """Avança para a próxima fase"""
         self.phase += 1
+        # Reseta progresso específico da fase
+        self.items_collected = 0
+        self.boss_defeated = False
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
         self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
@@ -443,8 +489,8 @@ class SpaceEscape:
                     self.state = GameState.GAME_OVER
                     return
 
-        # Verifica vitória da fase
-        if self.score >= self._get_phase_target():
+        # Verifica vitória da fase (todas as condições desta fase)
+        if self._has_phase_victory():
             self.state = GameState.PHASE_VICTORY
             self.phase_victory_end = pygame.time.get_ticks() + self.config.PHASE_VICTORY_DURATION
 
@@ -456,12 +502,24 @@ class SpaceEscape:
         for meteor in self.meteors:
             meteor.draw(self.screen)
 
-        # HUD
+        # HUD linha 1
         hud_text = self.font_tiny.render(
             f"Pontos: {self.score}   Vidas: {self.lives}   Fase: {self.phase + 1}",
             True, Colors.WHITE
         )
         self.screen.blit(hud_text, (10, 10))
+
+        # HUD linha 2 - Objetivos da fase
+        target_pts = self._get_phase_target()
+        req_items = self._get_phase_required_items()
+        boss_req = self._is_boss_required()
+        obj_parts = [f"Objetivo: {self.score}/{target_pts} pts"]
+        if req_items > 0:
+            obj_parts.append(f"Itens: {self.items_collected}/{req_items}")
+        if boss_req:
+            obj_parts.append(f"Chefe: {'Derrotado' if self.boss_defeated else 'Não'}")
+        hud2_text = self.font_tiny.render("  •  ".join(obj_parts), True, Colors.WHITE)
+        self.screen.blit(hud2_text, (10, 40))
 
     def draw_phase_victory(self):
         """Desenha tela de vitória da fase"""
@@ -601,7 +659,9 @@ class SpaceEscape:
         # Salva jogo
         highscore = self.save_manager.save(
             self.difficulty, self.score, self.lives,
-            self.phase, self.player.rect.center
+            self.phase, self.player.rect.center,
+            items_collected=self.items_collected,
+            boss_defeated=self.boss_defeated
         )
 
         pygame.mixer.music.stop()
