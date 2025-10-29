@@ -1,498 +1,670 @@
 import pygame
 import random
 import os
+import json
+from enum import Enum
+from dataclasses import dataclass
+from typing import List, Dict, Optional
 
-# Definição de cores auxiliares
-YELLOW = (255, 215, 0)
+# =============================================================================
+# CONSTANTES
+# =============================================================================
 
-# Inicializa o PyGame
-pygame.init()
+class GameState(Enum):
+    MENU = "menu"
+    PLAYING = "playing"
+    PHASE_VICTORY = "phase_victory"
+    GAME_OVER = "game_over"
 
-# Caminho base dos assets relativo a este arquivo
-ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
+@dataclass
+class GameConfig:
+    """Configurações gerais do jogo"""
+    WIDTH: int = 800
+    HEIGHT: int = 600
+    FPS: int = 60
+    TITLE: str = "🚀 Space Escape"
+    SAVE_FILE: str = "savegame.json"
+    PHASE_TARGET_BASE: int = 100
+    PHASE_VICTORY_DURATION: int = 5000  # ms
 
-# ----------------------------------------------------------
-# 🔧 CONFIGURAÇÕES GERAIS DO JOGO
-# ----------------------------------------------------------
-WIDTH, HEIGHT = 800, 600
-FPS = 60
-pygame.display.set_caption("🚀 Space Escape")
+@dataclass
+class DifficultyConfig:
+    """Configuração de dificuldade"""
+    meteors: int
+    speed_min: int
+    speed_max: int
+    lives: int
 
-ASSETS = {
-    "background_level_1": "level_1.png",                         # imagem de fundo
-    "background_menu": "fundo_menu.png",                        # imagem de fundo
-    "endgame_bg": "endgame.png",                                # imagem da tela de fim de jogo
-    "player": "nave1.png",                                      # imagem da nave (padrão/idle/baixo)
-    "player_up": "nave2.png",                                   # imagem da nave quando movendo para cima
-    "meteor": "meteoro001.png",                                 # imagem do meteoro
-    "meteor2": "meteoro002.png",                                # imagem do meteoro
-    "sound_point": "classic-game-action-positive-5-224402.mp3", # som ao desviar com sucesso
-    "sound_hit": "stab-f-01-brvhrtz-224599.mp3",                # som de colisão
-    "music": "game-gaming-background-music-385611.mp3"          # música de fundo. direitos: Music by Maksym Malko from Pixabay
-}
+    def scale_for_phase(self, phase: int):
+        """Retorna configuração escalada para a fase"""
+        return DifficultyConfig(
+            meteors=self.meteors + 2 * phase,
+            speed_min=self.speed_min + phase,
+            speed_max=self.speed_max + phase,
+            lives=self.lives
+        )
 
-# ----------------------------------------------------------
-# 🖼️ CARREGAMENTO DE IMAGENS E SONS
-# ----------------------------------------------------------
-# Cores para fallback (caso os arquivos não existam)
-WHITE = (255, 255, 255)
-RED = (255, 60, 60)
-BLUE = (60, 100, 255)
 
-# Tela do jogo
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-
-# Resolvedor de caminho relativo aos assets
-def resolve_path(name):
-    return name if os.path.isabs(name) else os.path.join(ASSET_DIR, name)
-
-# Função auxiliar para carregar imagens de forma segura
-def load_image(filename, fallback_color, size=None):
-    path = resolve_path(filename)
-    if os.path.exists(path):
-        imagem_load = pygame.image.load(path).convert_alpha()
-        if size:
-            imagem_load = pygame.transform.scale(imagem_load, size)
-        return imagem_load
-    else:
-        # Gera uma superfície simples colorida se a imagem não existir
-        surf = pygame.Surface(size or (50, 50))
-        surf.fill(fallback_color)
-        return surf
-
-# Carrega imagens
-background = load_image(ASSETS["background_level_1"], WHITE, (WIDTH, HEIGHT))
-background_menu = load_image(ASSETS["background_menu"], WHITE, (WIDTH, HEIGHT))
-endgame_bg = load_image(ASSETS["endgame_bg"], WHITE, (WIDTH, HEIGHT))
-# Sprites da nave: idle/baixo e subindo
-player_img_idle = load_image(ASSETS["player"], BLUE, (80, 60))
-player_img_up = load_image(ASSETS.get("player_up", ASSETS["player"]), BLUE, (200, 140))
-current_player_img = player_img_idle
-meteor_img = load_image(ASSETS["meteor"], RED, (40, 40))
-meteor_img2 = load_image(ASSETS["meteor2"], YELLOW, (40, 40))
-
-# Sons
-def load_sound(filename):
-    path = resolve_path(filename)
-    if os.path.exists(path):
-        return pygame.mixer.Sound(path)
-    return None
-
-sound_point = load_sound(ASSETS["sound_point"])
-sound_hit = load_sound(ASSETS["sound_hit"])
-
-# Música de fundo (opcional)
-music_path = resolve_path(ASSETS["music"])
-if os.path.exists(music_path):
-    try:
-        pygame.mixer.music.load(music_path)
-        pygame.mixer.music.set_volume(0.3)
-        pygame.mixer.music.play(-1)  # loop infinito
-    except Exception as e:
-        print(f"Aviso: não foi possível tocar música de fundo em {music_path}: {e}")
-
-# ----------------------------------------------------------
-# 🧠 VARIÁVEIS E ESTADO DO JOGO
-# ----------------------------------------------------------
-font = pygame.font.Font(None, 36)
-clock = pygame.time.Clock()
-
-# Configurações por dificuldade
+# Dificuldades disponíveis
 DIFFICULTIES = {
-    "Fácil":   {"meteors": 5,  "speed_min": 2, "speed_max": 5, "lives": 5},
-    "Normal":  {"meteors": 8,  "speed_min": 3, "speed_max": 7, "lives": 3},
-    "Difícil": {"meteors": 12, "speed_min": 4, "speed_max": 9, "lives": 2},
+    "Fácil": DifficultyConfig(meteors=5, speed_min=2, speed_max=5, lives=5),
+    "Normal": DifficultyConfig(meteors=8, speed_min=3, speed_max=7, lives=3),
+    "Difícil": DifficultyConfig(meteors=12, speed_min=4, speed_max=9, lives=2),
 }
-current_difficulty = "Normal"
-player_speed = 7
-meteor_images = [meteor_img, meteor_img2]
-SAVE_PATH = os.path.join(ASSET_DIR, "savegame.json")
 
-# ----------------------------------------------------------
-# 🗺️ FASES DO JOGO
-# ----------------------------------------------------------
-current_phase_index = 0  # 0 = Fase 1, 1 = Fase 2, ...
+# Cores
+class Colors:
+    WHITE = (255, 255, 255)
+    RED = (255, 60, 60)
+    BLUE = (60, 100, 255)
+    YELLOW = (255, 215, 0)
+    DARK_RED = (255, 0, 0)
 
-# Estados do fluxo de jogo: "playing" (jogando), "phase_victory" (tela de vitória)
-game_mode = "playing"
-phase_victory_end_ms = None  # timestamp (ms) quando a contagem regressiva termina
+# Assets
+ASSETS = {
+    "background_level_1": "level_1.png",
+    "background_menu": "fundo_menu.png",
+    "endgame_bg": "endgame.png",
+    "player": "nave1.png",
+    "player_up": "nave2.png",
+    "meteor": "meteoro001.png",
+    "meteor2": "meteoro002.png",
+    "sound_point": "classic-game-action-positive-5-224402.mp3",
+    "sound_hit": "stab-f-01-brvhrtz-224599.mp3",
+    "music": "game-gaming-background-music-385611.mp3"
+}
 
-# Metas de pontuação por fase (cumulativas). Ex.: Fase 1 = 100, Fase 2 = 200, ...
-PHASE_TARGET_BASE = 100
+# Dimensões padrão
+class Sizes:
+    PLAYER_IDLE = (80, 60)
+    PLAYER_UP = (200, 140)
+    METEOR = (40, 40)
+    PLAYER_SPEED = 7
 
-def get_phase_target(phase_index):
-    return PHASE_TARGET_BASE * (phase_index + 1)
+# =============================================================================
+# GERENCIADOR DE RECURSOS
+# =============================================================================
+class ResourceManager:
+    """Gerencia carregamento de imagens e sons"""
+    def __init__(self, asset_dir: str):
+        self.asset_dir = asset_dir
+        self.images = {}
+        self.sounds = {}
 
+    def _resolve_path(self, filename: str) -> str:
+        """Resolve caminho relativo ao diretório de assets"""
+        if os.path.isabs(filename):
+            return filename
+        return os.path.join(self.asset_dir, filename)
 
-def get_phase_config(base_cfg, phase_index):
-    """Retorna a configuração da fase a partir da dificuldade base e do índice da fase.
-    A cada fase, aumentamos levemente a quantidade e a velocidade dos meteoros.
-    """
-    # Escalonamento simples: +2 meteoros por fase, +1 na velocidade mínima e máxima por fase
-    return {
-        "meteors": base_cfg["meteors"] + 2 * phase_index,
-        "speed_min": base_cfg["speed_min"] + phase_index,
-        "speed_max": base_cfg["speed_max"] + phase_index,
-        "lives": base_cfg["lives"],  # vidas não aumentam automaticamente
-    }
+    def load_image(self, key: str, filename: str, size: tuple,
+                   fallback_color: tuple) -> pygame.Surface:
+        """Carrega imagem com fallback para cor sólida"""
+        if key in self.images:
+            return self.images[key]
 
+        path = self._resolve_path(filename)
+        if os.path.exists(path):
+            img = pygame.image.load(path).convert_alpha()
+            img = pygame.transform.scale(img, size)
+        else:
+            img = pygame.Surface(size)
+            img.fill(fallback_color)
 
-def build_meteors_for_phase(phase_index):
-    base = DIFFICULTIES.get(current_difficulty, DIFFICULTIES["Normal"])
-    return build_meteors(get_phase_config(base, phase_index))
+        self.images[key] = img
+        return img
 
+    def load_sound(self, key: str, filename: str) -> Optional[pygame.mixer.Sound]:
+        """Carrega som"""
+        if key in self.sounds:
+            return self.sounds[key]
 
-# Helpers para estado
-def build_meteors(selected_difficulty):
-    build_meteor_list = []
-    for _ in range(selected_difficulty["meteors"]):
-        x = random.randint(0, WIDTH - 40)
-        y = random.randint(-500, -40)
-        bm_rect = pygame.Rect(x, y, 40, 40)
-        speed = random.randint(selected_difficulty["speed_min"], selected_difficulty["speed_max"])
-        img = random.choice(meteor_images)
-        build_meteor_list.append({"rect": bm_rect, "img": img, "speed": speed})
-    return build_meteor_list
-
-def create_new_game_state():
-    selected_difficulty = DIFFICULTIES[current_difficulty]
-    state = {
-        "difficulty": current_difficulty,
-        "player_rect": player_img_idle.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
-        "score": 0,
-        "lives": selected_difficulty["lives"],
-        "phase": 0,
-        "meteors": build_meteors(get_phase_config(selected_difficulty, 0)),
-    }
-    return state
-
-def get_saved_highscore():
-    try:
-        import json
-        if not os.path.exists(SAVE_PATH):
-            return 0
-        with open(SAVE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return int(data.get("highscore", 0))
-    except Exception:
-        return 0
-
-
-def save_game(state):
-    try:
-        # Atualiza e persiste o highscore
-        prev_high = get_saved_highscore()
-        new_highscore = max(prev_high, int(state["score"]))
-        data = {
-            "difficulty": state["difficulty"],
-            "score": int(state["score"]),
-            "lives": int(state["lives"]),
-            "phase": int(state.get("phase", 0)),
-            "player": {"x": int(state["player_rect"].x), "y": int(state["player_rect"].y)},
-            "highscore": new_highscore,
-        }
-        import json
-        with open(SAVE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        return new_highscore
-    except Exception as exception:
-        print(f"Aviso: falha ao salvar jogo: {exception}")
+        path = self._resolve_path(filename)
+        if os.path.exists(path):
+            sound = pygame.mixer.Sound(path)
+            self.sounds[key] = sound
+            return sound
         return None
 
-def load_game_state():
-    try:
-        import json
-        if not os.path.exists(SAVE_PATH):
+    def load_music(self, filename: str, volume: float = 0.3) -> bool:
+        """Carrega e toca música de fundo"""
+        path = self._resolve_path(filename)
+        if os.path.exists(path):
+            try:
+                pygame.mixer.music.load(path)
+                pygame.mixer.music.set_volume(volume)
+                pygame.mixer.music.play(-1)
+                return True
+            except Exception as e:
+                print(f"Aviso: erro ao carregar música: {e}")
+        return False
+
+# =============================================================================
+# ENTIDADES DO JOGO
+# =============================================================================
+
+class Meteor:
+    """Representa um meteoro"""
+    def __init__(self, x: int, y: int, speed: int, image: pygame.Surface):
+        self.rect = pygame.Rect(x, y, Sizes.METEOR[0], Sizes.METEOR[1])
+        self.speed = speed
+        self.image = image
+
+    def update(self, screen_height: int) -> bool:
+        """Atualiza posição. Retorna True se saiu da tela"""
+        self.rect.y += self.speed
+        return self.rect.y > screen_height
+
+    def randomize_position(self, screen_width: int):
+        """Reposiciona no topo com posição X aleatória"""
+        self.rect.y = random.randint(-100, -40)
+        self.rect.x = random.randint(0, screen_width - self.rect.width)
+
+    def draw(self, screen: pygame.Surface):
+        """Desenha o meteoro"""
+        screen.blit(self.image, self.rect)
+
+class Player:
+    """Representa o jogador"""
+    def __init__(self, x: int, y: int, idle_img: pygame.Surface,
+                 up_img: pygame.Surface):
+        self.idle_img = idle_img
+        self.up_img = up_img
+        self.rect = idle_img.get_rect(center=(x, y))
+        self.speed = Sizes.PLAYER_SPEED
+        self.current_img = idle_img
+        self.moving_up = False
+
+    def update(self, keys, screen_width: int, screen_height: int):
+        """Atualiza posição baseado nas teclas pressionadas"""
+        # Movimento horizontal
+        if keys[pygame.K_LEFT] and self.rect.left > 0:
+            self.rect.x -= self.speed
+        if keys[pygame.K_RIGHT] and self.rect.right < screen_width:
+            self.rect.x += self.speed
+
+        # Movimento vertical
+        self.moving_up = False
+        if keys[pygame.K_UP] and self.rect.top > 0:
+            self.rect.y -= self.speed
+            self.moving_up = True
+        if keys[pygame.K_DOWN] and self.rect.bottom < screen_height:
+            self.rect.y += self.speed
+
+        # Atualiza sprite
+        self.current_img = self.up_img if self.moving_up else self.idle_img
+
+    def draw(self, screen: pygame.Surface):
+        """Desenha o jogador"""
+        screen.blit(self.current_img, self.rect)
+
+    def reset_position(self, x: int, y: int):
+        """Reposiciona o jogador"""
+        self.rect.center = (x, y)
+
+# =============================================================================
+# GERENCIADOR DE SAVE
+# =============================================================================
+
+class SaveManager:
+    """Gerencia salvamento e carregamento do jogo"""
+    def __init__(self, save_path: str):
+        self.save_path = save_path
+
+    def save(self, difficulty: str, score: int, lives: int,
+             phase: int, player_pos: tuple) -> int:
+        """Salva o jogo e retorna o highscore atualizado"""
+        try:
+            highscore = max(self.get_highscore(), score)
+            data = {
+                "difficulty": difficulty,
+                "score": score,
+                "lives": lives,
+                "phase": phase,
+                "player": {"x": player_pos[0], "y": player_pos[1]},
+                "highscore": highscore
+            }
+            with open(self.save_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            return highscore
+        except Exception as e:
+            print(f"Erro ao salvar: {e}")
+            return self.get_highscore()
+
+    def load(self) -> Optional[Dict]:
+        """Carrega jogo salvo"""
+        try:
+            if not os.path.exists(self.save_path):
+                return None
+            with open(self.save_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Erro ao carregar: {e}")
             return None
-        with open(SAVE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        diff = data.get("difficulty", "Normal")
-        # Ajusta configuração e recria meteoros conforme a fase salva
-        selected_difficulty = DIFFICULTIES.get(diff, DIFFICULTIES["Normal"])
-        phase_idx = int(data.get("phase", 0))
-        state = {
-            "difficulty": diff,
-            "player_rect": player_img_idle.get_rect(center=(WIDTH // 2, HEIGHT - 60)),
-            "score": int(data.get("score", 0)),
-            "lives": int(data.get("lives", selected_difficulty["lives"])),
-            "phase": phase_idx,
-            "meteors": build_meteors(get_phase_config(selected_difficulty, phase_idx)),
-        }
-        # Reposiciona player se existir no save
-        p = data.get("player", {})
-        state["player_rect"].x = int(p.get("x", state["player_rect"].x))
-        state["player_rect"].y = int(p.get("y", state["player_rect"].y))
-        return state
-    except Exception as exception:
-        print(f"Aviso: falha ao carregar jogo: {exception}")
-        return None
 
-# ----------------------------------------------------------
-# 🧭 MENU INICIAL (Novo jogo, Carregar, Dificuldade, Sair)
-# ----------------------------------------------------------
-menu_font = pygame.font.Font(None, 64)
-small_font = pygame.font.Font(None, 36)
-menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Sair"]
-selected = 0
+    def get_highscore(self) -> int:
+        """Retorna o highscore salvo"""
+        data = self.load()
+        return data.get("highscore", 0) if data else 0
 
-showing_menu = True
-pending_message = ""
-message_timer = 0
 
-while showing_menu:
-    screen.blit(background_menu, (0, 0))
+# =============================================================================
+# GAME ENGINE
+# =============================================================================
 
-    title = menu_font.render("🚀 SPACE ESCAPE 🚀", True, YELLOW)
-    screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 80))
+class SpaceEscape:
+    """Classe principal do jogo"""
+    def __init__(self):
+        pygame.init()
 
-    # Lista de opções
-    start_y = 220
-    for i, opt in enumerate(menu_options):
-        color = YELLOW if i == selected else WHITE
-        label = small_font.render(opt, True, color)
-        screen.blit(label, (WIDTH // 2 - label.get_width() // 2, start_y + i * 40))
+        self.config = GameConfig()
+        self.screen = pygame.display.set_mode((self.config.WIDTH, self.config.HEIGHT))
+        pygame.display.set_caption(self.config.TITLE)
+        self.clock = pygame.time.Clock()
 
-    # Mostrar dificuldade atual
-    diff_text = small_font.render(f"Dificuldade atual: {current_difficulty}", True, WHITE)
-    screen.blit(diff_text, (WIDTH // 2 - diff_text.get_width() // 2, start_y + len(menu_options) * 40 + 20))
+        # Gerenciadores
+        asset_dir = os.path.dirname(os.path.abspath(__file__))
+        self.resources = ResourceManager(asset_dir)
+        self.save_manager = SaveManager(os.path.join(asset_dir, self.config.SAVE_FILE))
 
-    # Mensagem temporária
-    if pending_message:
-        msg = small_font.render(pending_message, True, WHITE)
-        screen.blit(msg, (WIDTH // 2 - msg.get_width() // 2, HEIGHT - 80))
-        message_timer -= 1
-        if message_timer <= 0:
-            pending_message = ""
+        # Carrega recursos
+        self._load_resources()
 
-    pygame.display.flip()
+        # Estado do jogo
+        self.state = GameState.MENU
+        self.difficulty = "Normal"
+        self.score = 0
+        self.lives = 0
+        self.phase = 0
+        self.meteors: List[Meteor] = []
+        self.player = None
+        self.phase_victory_end = None
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit(); exit()
-        elif event.type == pygame.KEYDOWN:
-            if event.key in (pygame.K_DOWN, pygame.K_s):
-                selected = (selected + 1) % len(menu_options)
-            elif event.key in (pygame.K_UP, pygame.K_w):
-                selected = (selected - 1) % len(menu_options)
-            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                choice = menu_options[selected]
-                if choice == "Novo jogo":
-                    game_state = create_new_game_state()
-                    showing_menu = False
-                elif choice == "Carregar jogo salvo":
-                    loaded = load_game_state()
-                    if loaded:
-                        game_state = loaded
-                        current_difficulty = loaded["difficulty"]
-                        showing_menu = False
-                    else:
-                        pending_message = "Nenhum jogo salvo encontrado."
-                        message_timer = FPS * 2
-                elif choice == "Escolher dificuldade":
-                    # Submenu simples de dificuldade
-                    diffs = list(DIFFICULTIES.keys())
-                    d_selected = diffs.index(current_difficulty)
-                    choosing = True
-                    while choosing:
-                        screen.blit(background_menu, (0, 0))
-                        title2 = menu_font.render("Escolher dificuldade", True, YELLOW)
-                        screen.blit(title2, (WIDTH // 2 - title2.get_width() // 2, 80))
-                        for i, d in enumerate(diffs):
-                            color = YELLOW if i == d_selected else WHITE
-                            lab = small_font.render(d, True, color)
-                            screen.blit(lab, (WIDTH // 2 - lab.get_width() // 2, 220 + i * 40))
-                        hint = small_font.render("ENTER para confirmar • ESC para voltar", True, WHITE)
-                        screen.blit(hint, (WIDTH // 2 - hint.get_width() // 2, 400))
-                        pygame.display.flip()
-                        for e2 in pygame.event.get():
-                            if e2.type == pygame.QUIT:
-                                pygame.quit(); exit()
-                            elif e2.type == pygame.KEYDOWN:
-                                if e2.key in (pygame.K_DOWN, pygame.K_s):
-                                    d_selected = (d_selected + 1) % len(diffs)
-                                elif e2.key in (pygame.K_UP, pygame.K_w):
-                                    d_selected = (d_selected - 1) % len(diffs)
-                                elif e2.key in (pygame.K_RETURN, pygame.K_SPACE):
-                                    current_difficulty = diffs[d_selected]
-                                    choosing = False
-                                elif e2.key == pygame.K_ESCAPE:
-                                    choosing = False
-                elif choice == "Sair":
-                    pygame.quit(); exit()
-            elif event.key == pygame.K_ESCAPE:
-                pygame.quit(); exit()
+        # Fontes
+        self.font_large = pygame.font.Font(None, 96)
+        self.font_medium = pygame.font.Font(None, 64)
+        self.font_small = pygame.font.Font(None, 48)
+        self.font_tiny = pygame.font.Font(None, 36)
 
-# agora sim começa o jogo de fato
-running = True
-# Inicializa variáveis a partir do estado
-player_rect = game_state["player_rect"]
-score = game_state["score"]
-lives = game_state["lives"]
-current_phase_index = int(game_state.get("phase", 0))
-meteor_list = game_state["meteors"]
-# Modo de jogo e controle de vitória de fase
-game_mode = "playing"
-phase_victory_end_ms = None
+    def _load_resources(self):
+        """Carrega todos os recursos do jogo"""
+        # Imagens
+        self.bg_level = self.resources.load_image(
+            "bg_level", ASSETS["background_level_1"],
+            (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE
+        )
+        self.bg_menu = self.resources.load_image(
+            "bg_menu", ASSETS["background_menu"],
+            (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE
+        )
+        self.bg_endgame = self.resources.load_image(
+            "bg_endgame", ASSETS["endgame_bg"],
+            (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE
+        )
 
-# ----------------------------------------------------------
-# 🕹️ LOOP PRINCIPAL
-# ----------------------------------------------------------
-while running:
-    clock.tick(FPS)
-    screen.blit(background, (0, 0))
+        self.player_idle = self.resources.load_image(
+            "player_idle", ASSETS["player"], Sizes.PLAYER_IDLE, Colors.BLUE
+        )
+        self.player_up = self.resources.load_image(
+            "player_up", ASSETS["player_up"], Sizes.PLAYER_UP, Colors.BLUE
+        )
 
-    # --- Eventos ---
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+        self.meteor_imgs = [
+            self.resources.load_image("meteor1", ASSETS["meteor"],
+                                      Sizes.METEOR, Colors.RED),
+            self.resources.load_image("meteor2", ASSETS["meteor2"],
+                                      Sizes.METEOR, Colors.YELLOW)
+        ]
 
-    # Se estamos na tela de vitória da fase, desenha e aguarda o cronômetro
-    if game_mode == "phase_victory":
-        screen.blit(background, (0, 0))
-        # Mensagens de vitória
-        big_font = pygame.font.Font(None, 96)
-        mid_font = pygame.font.Font(None, 48)
-        title = big_font.render("Fase vencida!", True, YELLOW)
-        phase_label = mid_font.render(f"Fase {current_phase_index + 1} concluída!", True, WHITE)
-        # Cronômetro restante
-        now_ms = pygame.time.get_ticks()
-        remaining_ms = max(0, (phase_victory_end_ms or now_ms) - now_ms)
+        # Sons
+        self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
+        self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"])
+        self.resources.load_music(ASSETS["music"])
+
+    def _create_meteors(self, config: DifficultyConfig) -> List[Meteor]:
+        """Cria lista de meteoros baseado na configuração"""
+        meteors = []
+        for _ in range(config.meteors):
+            x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
+            y = random.randint(-500, -40)
+            speed = random.randint(config.speed_min, config.speed_max)
+            img = random.choice(self.meteor_imgs)
+            meteors.append(Meteor(x, y, speed, img))
+        return meteors
+
+    def new_game(self):
+        """Inicia um novo jogo"""
+        diff_config = DIFFICULTIES[self.difficulty]
+        self.score = 0
+        self.lives = diff_config.lives
+        self.phase = 0
+        self.player = Player(
+            self.config.WIDTH // 2, self.config.HEIGHT - 60,
+            self.player_idle, self.player_up
+        )
+        self.meteors = self._create_meteors(diff_config.scale_for_phase(0))
+        self.state = GameState.PLAYING
+
+    def load_game(self) -> bool:
+        """Carrega jogo salvo. Retorna True se bem-sucedido"""
+        data = self.save_manager.load()
+        if not data:
+            return False
+
+        self.difficulty = data.get("difficulty", "Normal")
+        self.score = data.get("score", 0)
+        self.lives = data.get("lives", 3)
+        self.phase = data.get("phase", 0)
+
+        diff_config = DIFFICULTIES[self.difficulty]
+        self.player = Player(
+            self.config.WIDTH // 2, self.config.HEIGHT - 60,
+            self.player_idle, self.player_up
+        )
+
+        player_data = data.get("player", {})
+        if player_data:
+            self.player.rect.x = player_data.get("x", self.player.rect.x)
+            self.player.rect.y = player_data.get("y", self.player.rect.y)
+
+        self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self.state = GameState.PLAYING
+        return True
+
+    def _get_phase_target(self) -> int:
+        """Retorna pontuação necessária para completar a fase atual"""
+        return self.config.PHASE_TARGET_BASE * (self.phase + 1)
+
+    def _handle_meteor_collision(self):
+        """Processa colisão com meteoro"""
+        self.lives -= 1
+
+        # Penalidade de pontos (BUG CORRIGIDO)
+        if 0 < self.score < 50:
+            self.score = max(0, self.score - 2)
+        elif self.score >= 50:
+            self.score = max(0, self.score - 5)
+
+        if self.sound_hit:
+            self.sound_hit.play()
+
+    def _advance_phase(self):
+        """Avança para a próxima fase"""
+        self.phase += 1
+        self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
+        diff_config = DIFFICULTIES[self.difficulty]
+        self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self.state = GameState.PLAYING
+        self.phase_victory_end = None
+
+    def update_gameplay(self):
+        """Atualiza lógica do gameplay"""
+        keys = pygame.key.get_pressed()
+        self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
+
+        diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
+
+        for meteor in self.meteors:
+            if meteor.update(self.config.HEIGHT):
+                # Meteoro saiu da tela
+                meteor.randomize_position(self.config.WIDTH)
+                meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+                meteor.image = random.choice(self.meteor_imgs)
+                self.score += 1
+                if self.sound_point:
+                    self.sound_point.play()
+
+            # Verifica colisão
+            if meteor.rect.colliderect(self.player.rect):
+                self._handle_meteor_collision()
+                meteor.randomize_position(self.config.WIDTH)
+                meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+
+                if self.lives <= 0:
+                    self.state = GameState.GAME_OVER
+                    return
+
+        # Verifica vitória da fase
+        if self.score >= self._get_phase_target():
+            self.state = GameState.PHASE_VICTORY
+            self.phase_victory_end = pygame.time.get_ticks() + self.config.PHASE_VICTORY_DURATION
+
+    def draw_gameplay(self):
+        """Desenha o gameplay"""
+        self.screen.blit(self.bg_level, (0, 0))
+        self.player.draw(self.screen)
+
+        for meteor in self.meteors:
+            meteor.draw(self.screen)
+
+        # HUD
+        hud_text = self.font_tiny.render(
+            f"Pontos: {self.score}   Vidas: {self.lives}   Fase: {self.phase + 1}",
+            True, Colors.WHITE
+        )
+        self.screen.blit(hud_text, (10, 10))
+
+    def draw_phase_victory(self):
+        """Desenha tela de vitória da fase"""
+        self.screen.blit(self.bg_level, (0, 0))
+
+        title = self.font_large.render("Fase vencida!", True, Colors.YELLOW)
+        phase_label = self.font_small.render(
+            f"Fase {self.phase + 1} concluída!", True, Colors.WHITE
+        )
+
+        # Cronômetro
+        remaining_ms = max(0, self.phase_victory_end - pygame.time.get_ticks())
         remaining_sec = (remaining_ms // 1000) + (1 if remaining_ms % 1000 > 0 else 0)
-        timer_text = mid_font.render(f"Próxima fase em {remaining_sec}s...", True, WHITE)
-        screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 180))
-        screen.blit(phase_label, (WIDTH // 2 - phase_label.get_width() // 2, 260))
-        screen.blit(timer_text, (WIDTH // 2 - timer_text.get_width() // 2, 320))
+        timer_text = self.font_small.render(
+            f"Próxima fase em {remaining_sec}s...", True, Colors.WHITE
+        )
+
+        self.screen.blit(title,
+                         (self.config.WIDTH // 2 - title.get_width() // 2, 180))
+        self.screen.blit(phase_label,
+                         (self.config.WIDTH // 2 - phase_label.get_width() // 2, 260))
+        self.screen.blit(timer_text,
+                         (self.config.WIDTH // 2 - timer_text.get_width() // 2, 320))
+
+        # Verifica se deve avançar
+        if pygame.time.get_ticks() >= self.phase_victory_end:
+            self._advance_phase()
+
+    def run_menu(self) -> bool:
+        """Executa menu. Retorna False se deve sair do jogo"""
+        menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Sair"]
+        selected = 0
+        message = ""
+        message_timer = 0
+
+        while self.state == GameState.MENU:
+            self.screen.blit(self.bg_menu, (0, 0))
+
+            # Título
+            title = self.font_medium.render("🚀 SPACE ESCAPE 🚀", True, Colors.YELLOW)
+            self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
+
+            # Opções
+            start_y = 220
+            for i, opt in enumerate(menu_options):
+                color = Colors.YELLOW if i == selected else Colors.WHITE
+                label = self.font_tiny.render(opt, True, color)
+                self.screen.blit(label,
+                                 (self.config.WIDTH // 2 - label.get_width() // 2,
+                                  start_y + i * 40))
+
+            # Dificuldade atual
+            diff_text = self.font_tiny.render(
+                f"Dificuldade atual: {self.difficulty}", True, Colors.WHITE
+            )
+            self.screen.blit(diff_text, (self.config.WIDTH // 2 - diff_text.get_width() // 2, start_y + len(menu_options) * 40 + 20))
+
+            # Mensagem temporária
+            if message:
+                msg = self.font_tiny.render(message, True, Colors.WHITE)
+                self.screen.blit(msg, (self.config.WIDTH // 2 - msg.get_width() // 2, self.config.HEIGHT - 80))
+                message_timer -= 1
+                if message_timer <= 0:
+                    message = ""
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(menu_options)
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(menu_options)
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        choice = menu_options[selected]
+                        if choice == "Novo jogo":
+                            self.new_game()
+                        elif choice == "Carregar jogo salvo":
+                            if not self.load_game():
+                                message = "Nenhum jogo salvo encontrado."
+                                message_timer = self.config.FPS * 2
+                        elif choice == "Escolher dificuldade":
+                            self._difficulty_menu()
+                        elif choice == "Sair":
+                            return False
+                    elif event.key == pygame.K_ESCAPE:
+                        return False
+
+            self.clock.tick(self.config.FPS)
+
+        return True
+
+    def _difficulty_menu(self):
+        """Menu de seleção de dificuldade"""
+        diffs = list(DIFFICULTIES.keys())
+        selected = diffs.index(self.difficulty)
+        choosing = True
+
+        while choosing:
+            self.screen.blit(self.bg_menu, (0, 0))
+
+            title = self.font_medium.render("Escolher dificuldade", True, Colors.YELLOW)
+            self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
+
+            for i, diff in enumerate(diffs):
+                color = Colors.YELLOW if i == selected else Colors.WHITE
+                label = self.font_tiny.render(diff, True, color)
+                self.screen.blit(label, (self.config.WIDTH // 2 - label.get_width() // 2, 220 + i * 40))
+
+            hint = self.font_tiny.render(
+                "ENTER para confirmar • ESC para voltar", True, Colors.WHITE
+            )
+            self.screen.blit(hint, (self.config.WIDTH // 2 - hint.get_width() // 2, 400))
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    choosing = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(diffs)
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(diffs)
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        self.difficulty = diffs[selected]
+                        choosing = False
+                    elif event.key == pygame.K_ESCAPE:
+                        choosing = False
+
+            self.clock.tick(self.config.FPS)
+
+    def run_game_over(self) -> bool:
+        """Executa tela de game over. Retorna False se deve sair"""
+        # Salva jogo
+        highscore = self.save_manager.save(
+            self.difficulty, self.score, self.lives,
+            self.phase, self.player.rect.center
+        )
+
+        pygame.mixer.music.stop()
+
+        self.screen.blit(self.bg_endgame, (0, 0))
+
+        # Título
+        title = self.font_large.render("GAME OVER", True, Colors.DARK_RED)
+        self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 120))
+
+        # Informações
+        labels = [
+            f"Fase: {self.phase + 1}",
+            f"Dificuldade: {self.difficulty}",
+            f"Pontuação: {self.score}",
+            f"Maior pontuação: {highscore}"
+        ]
+
+        start_y = 260
+        for i, text in enumerate(labels):
+            label = self.font_small.render(text, True, Colors.WHITE)
+            self.screen.blit(label, (self.config.WIDTH // 2 - label.get_width() // 2, start_y + i * 50))
+
+        hint = self.font_tiny.render(
+            "Pressione qualquer tecla para voltar ao menu", True, Colors.WHITE
+        )
+        self.screen.blit(hint, (self.config.WIDTH // 2 - hint.get_width() // 2, self.config.HEIGHT - 80))
+
         pygame.display.flip()
 
-        if phase_victory_end_ms is not None and now_ms >= phase_victory_end_ms:
-            # Avança para a próxima fase
-            current_phase_index += 1
-            # Reposiciona o jogador e recria meteoros com a nova configuração
-            player_rect = player_img_idle.get_rect(center=(WIDTH // 2, HEIGHT - 60))
-            base_cfg = DIFFICULTIES.get(current_difficulty, DIFFICULTIES["Normal"])
-            meteor_list = build_meteors(get_phase_config(base_cfg, current_phase_index))
-            # Volta a jogar
-            game_mode = "playing"
-            phase_victory_end_ms = None
-        continue  # não processa lógica de jogo enquanto exibe a vitória
+        waiting = True
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN:
+                    waiting = False
+                    self.state = GameState.MENU
 
-    # --- Movimento do jogador ---
-    keys = pygame.key.get_pressed()
-    # Esquerda/Direita
-    if keys[pygame.K_LEFT] and player_rect.left > 0:
-        player_rect.x -= player_speed
-    if keys[pygame.K_RIGHT] and player_rect.right < WIDTH:
-        player_rect.x += player_speed
-    # Cima/Baixo
-    if keys[pygame.K_UP] and player_rect.top > 0:
-        player_rect.y -= player_speed
-    if keys[pygame.K_DOWN] and player_rect.bottom < HEIGHT:
-        player_rect.y += player_speed
+            self.clock.tick(self.config.FPS)
 
-    # Alterar sprite conforme movimento vertical
-    if keys[pygame.K_UP]:
-        current_player_img = player_img_up
-    else:
-        # Parado ou movendo para baixo usa nave1
-        current_player_img = player_img_idle
+        return True
 
-    # --- Movimento dos meteoros ---
-    for m in meteor_list:
-        rect = m["rect"]
-        rect.y += m["speed"]
+    def run(self):
+        """Loop principal do jogo"""
+        running = True
 
-        # Saiu da tela → reposiciona e soma pontos
-        if rect.y > HEIGHT:
-            rect.y = random.randint(-100, -40)
-            rect.x = random.randint(0, WIDTH - rect.width)
-            # opcionalmente randomizar novo speed e imagem
-            base_cfg = DIFFICULTIES.get(current_difficulty, DIFFICULTIES["Normal"])
-            cfg = get_phase_config(base_cfg, current_phase_index)
-            m["speed"] = random.randint(cfg["speed_min"], cfg["speed_max"])
-            m["img"] = random.choice(meteor_images)
-            score += 1
-            if sound_point:
-                sound_point.play()
+        while running:
+            if self.state == GameState.MENU:
+                running = self.run_menu()
 
-        # Colisão
-        if rect.colliderect(player_rect):
-            lives -= 1
-            if score > 0 and score < 50 == 0:
-                score -= 2
-            elif score > 50:
-                score -= 5
-            elif score < 0:
-                score = 0
-            rect.y = random.randint(-100, -40)
-            rect.x = random.randint(0, WIDTH - rect.width)
-            cfg = DIFFICULTIES.get(current_difficulty, DIFFICULTIES["Normal"])
-            m["speed"] = random.randint(cfg["speed_min"], cfg["speed_max"])
-            if sound_hit:
-                sound_hit.play()
-            if lives <= 0:
-                running = False
+            elif self.state == GameState.PLAYING:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
 
-    # Verifica vitória da fase atual
-    if score >= get_phase_target(current_phase_index):
-        # Entra na tela de vitória por 5s
-        game_mode = "phase_victory"
-        phase_victory_end_ms = pygame.time.get_ticks() + 5000
+                if running:
+                    self.update_gameplay()
+                    self.draw_gameplay()
+                    pygame.display.flip()
+                    self.clock.tick(self.config.FPS)
 
-    # --- Desenha tudo ---
-    screen.blit(current_player_img, player_rect)
-    for m in meteor_list:
-        screen.blit(m["img"], m["rect"])
+            elif self.state == GameState.PHASE_VICTORY:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
 
-    # --- Exibe pontuação, vidas e fase ---
-    text = font.render(f"Pontos: {score}   Vidas: {lives}   Fase: {current_phase_index + 1}", True, WHITE)
-    screen.blit(text, (10, 10))
+                if running:
+                    self.draw_phase_victory()
+                    pygame.display.flip()
+                    self.clock.tick(self.config.FPS)
 
-    pygame.display.flip()
+            elif self.state == GameState.GAME_OVER:
+                running = self.run_game_over()
 
-# ----------------------------------------------------------
-# 🏁 TELA DE FIM DE JOGO
-# ----------------------------------------------------------
-# Salvar jogo automaticamente (estado final) e obter highscore
-new_high = save_game({
-    "difficulty": current_difficulty,
-    "player_rect": player_rect,
-    "score": score,
-    "lives": lives,
-})
-if new_high is None:
-    new_high = get_saved_highscore()
+        pygame.quit()
 
-pygame.mixer.music.stop()
 
-# Desenhar tela final com imagem de fundo
-screen.blit(endgame_bg, (0, 0))
+# =============================================================================
+# EXECUÇÃO
+# =============================================================================
 
-# Título "GAME OVER" em vermelho
-big_font = pygame.font.Font(None, 96)
-end_title = big_font.render("GAME OVER", True, (255, 0, 0))
-screen.blit(end_title, (WIDTH // 2 - end_title.get_width() // 2, 120))
-
-# Informações: fase, dificuldade, pontuação atual e maior pontuação
-info_font = pygame.font.Font(None, 48)
-label_fase = info_font.render(f"Fase: {current_phase_index + 1}", True, WHITE)
-label_diff = info_font.render(f"Dificuldade: {current_difficulty}", True, WHITE)
-label_score = info_font.render(f"Pontuação: {score}", True, WHITE)
-label_high = info_font.render(f"Maior pontuação: {new_high}", True, WHITE)
-
-center_x = WIDTH // 2
-start_y = 260
-for i, surf in enumerate([label_fase, label_diff, label_score, label_high]):
-    screen.blit(surf, (center_x - surf.get_width() // 2, start_y + i * 50))
-
-hint = font.render("Pressione qualquer tecla para sair", True, WHITE)
-screen.blit(hint, (center_x - hint.get_width() // 2, HEIGHT - 80))
-
-pygame.display.flip()
-
-waiting = True
-while waiting:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT or event.type == pygame.KEYDOWN:
-            waiting = False
-
-pygame.quit()
+if __name__ == "__main__":
+    game = SpaceEscape()
+    game.run()
