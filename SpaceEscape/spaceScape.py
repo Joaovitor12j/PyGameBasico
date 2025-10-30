@@ -83,7 +83,10 @@ class Sizes:
     PLAYER_UP = (200, 140)
     METEOR = (40, 40)
     ITEM = (32, 32)
-    PLAYER_SPEED = 7
+    PLAYER_SPEED = 6
+    BULLET = (6, 12)
+    BULLET_SPEED = -12  # velocidade vertical (negativa = para cima)
+    FIRE_COOLDOWN_MS = 200  # intervalo mínimo entre disparos contínuos
 
 # =============================================================================
 # GERENCIADOR DE RECURSOS
@@ -182,6 +185,21 @@ class Item:
 
     def draw(self, screen: pygame.Surface):
         screen.blit(self.image, self.rect)
+
+class Bullet:
+    """Projétil disparado pelo jogador (sobe e destrói meteoros)."""
+    def __init__(self, x: int, y: int, color: tuple = Colors.YELLOW):
+        self.rect = pygame.Rect(x, y, Sizes.BULLET[0], Sizes.BULLET[1])
+        self.vy = Sizes.BULLET_SPEED
+        self.color = color
+
+    def update(self) -> bool:
+        """Atualiza posição do projétil. Retorna True se saiu da tela (topo)."""
+        self.rect.y += self.vy
+        return self.rect.bottom < 0
+
+    def draw(self, screen: pygame.Surface):
+        pygame.draw.rect(screen, self.color, self.rect)
 
 class Player:
     """Representa o jogador"""
@@ -312,6 +330,9 @@ class SpaceEscape:
         # Itens coletáveis e agendamento de spawn
         self.items: List[Item] = []
         self.next_item_spawn_score: Optional[int] = None
+        # Projéteis
+        self.bullets: List[Bullet] = []
+        self.last_shot_ms: int = 0
 
         # Fontes
         self.font_large = pygame.font.Font(None, 96)
@@ -382,6 +403,9 @@ class SpaceEscape:
         self.boss_defeated = False
         self.items = []
         self.next_item_spawn_score = None
+        # Projéteis
+        self.bullets = []
+        self.last_shot_ms = 0
         self.player = Player(
             self.config.WIDTH // 2, self.config.HEIGHT - 60,
             self.player_idle, self.player_up
@@ -403,9 +427,11 @@ class SpaceEscape:
         # Progresso por fase
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
-        # Itens ativos no mundo (não persistidos)
+        # Itens/projéteis ativos no mundo (não persistidos)
         self.items = []
         self.next_item_spawn_score = None
+        self.bullets = []
+        self.last_shot_ms = 0
 
         diff_config = DIFFICULTIES[self.difficulty]
         self.player = Player(
@@ -524,6 +550,9 @@ class SpaceEscape:
         # Limpa itens e reprograma spawns para a nova fase
         self.items = []
         self._reset_item_spawn_schedule()
+        # Limpa projéteis
+        self.bullets = []
+        self.last_shot_ms = 0
         # Reposiciona jogador e recria meteoros com dificuldade escalada
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
@@ -531,13 +560,31 @@ class SpaceEscape:
         self.state = GameState.PLAYING
         self.phase_victory_end = None
 
+    def _try_shoot(self, keys):
+        """Dispara projétil se Espaço estiver pressionado e cooldown permitir."""
+        if not self.player:
+            return
+        if not keys[pygame.K_SPACE]:
+            return
+        now = pygame.time.get_ticks()
+        if now - self.last_shot_ms < Sizes.FIRE_COOLDOWN_MS:
+            return
+        # Centro no topo da nave
+        bx = self.player.rect.centerx - Sizes.BULLET[0] // 2
+        by = self.player.rect.top - Sizes.BULLET[1]
+        self.bullets.append(Bullet(bx, by))
+        self.last_shot_ms = now
+
     def update_gameplay(self):
         """Atualiza lógica do gameplay"""
         keys = pygame.key.get_pressed()
         self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
+        # Tiro
+        self._try_shoot(keys)
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
+        # Atualiza meteoros e colisão com jogador
         for meteor in self.meteors:
             if meteor.update(self.config.HEIGHT):
                 # Meteoro saiu da tela
@@ -548,7 +595,7 @@ class SpaceEscape:
                 if self.sound_point:
                     self.sound_point.play()
 
-            # Verifica colisão
+            # Verifica colisão com jogador
             if meteor.rect.colliderect(self.player.rect):
                 self._handle_meteor_collision()
                 meteor.randomize_position(self.config.WIDTH)
@@ -557,6 +604,30 @@ class SpaceEscape:
                 if self.lives <= 0:
                     self.state = GameState.GAME_OVER
                     return
+
+        # Atualiza projéteis
+        for bullet in self.bullets[:]:
+            if bullet.update():
+                self.bullets.remove(bullet)
+                continue
+            # Colisão projétil-meteoro
+            hit_meteor = None
+            for meteor in self.meteors:
+                if bullet.rect.colliderect(meteor.rect):
+                    hit_meteor = meteor
+                    break
+            if hit_meteor is not None:
+                # Remove projétil
+                if bullet in self.bullets:
+                    self.bullets.remove(bullet)
+                # "Destrói" o meteoro: reposiciona no topo com novo speed/imagem
+                hit_meteor.randomize_position(self.config.WIDTH)
+                hit_meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+                hit_meteor.image = random.choice(self.meteor_imgs)
+                # Pontuação por destruir com tiro
+                self.score += 1
+                if self.sound_point:
+                    self.sound_point.play()
 
         # Spawns de itens por pontuação (Fase 2 e 3) — apenas 1 por vez e exatamente a cada +20 pontos
         if self._is_item_enabled():
@@ -595,8 +666,10 @@ class SpaceEscape:
             meteor.draw(self.screen)
         for item in self.items:
             item.draw(self.screen)
+        # Desenha projéteis
+        for bullet in self.bullets:
+            bullet.draw(self.screen)
 
-        # Por último, o jogador por cima
         self.player.draw(self.screen)
 
         # HUD linha 1
