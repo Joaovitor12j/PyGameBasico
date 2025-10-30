@@ -76,6 +76,7 @@ ASSETS = {
     "sound_hit": "stab-f-01-brvhrtz-224599.mp3",
     "music": "game-gaming-background-music-385611.mp3",
     "item_collect": "star.png",
+    "sound_shoot": "laser.mp3",
 }
 
 # Dimensões padrão
@@ -298,6 +299,25 @@ class SaveManager:
 # GAME ENGINE
 # =============================================================================
 
+def _next_multiple_of_20_above(value: int) -> int:
+    rem = value % 20
+    return value + (20 - rem) if rem != 0 else value + 20
+
+
+def _normalize_volume_value(value) -> float:
+    if isinstance(value, int):
+        if 0 <= value <= 100:
+            return value / 100.0
+        else:
+            raise ValueError(f"Volume int fora do intervalo 0..100: {value}")
+    try:
+        f = float(value)
+    except Exception:
+        raise ValueError(f"Volume deve ser número (float 0..1 ou int 0..100): {value}")
+    if not (0.0 <= f <= 1.0):
+        raise ValueError(f"Volume float fora do intervalo 0.0..1.0: {f}")
+    return f
+
 class SpaceEscape:
     """Classe principal do jogo"""
     def __init__(self):
@@ -312,6 +332,14 @@ class SpaceEscape:
         asset_dir = os.path.dirname(os.path.abspath(__file__))
         self.resources = ResourceManager(asset_dir)
         self.save_manager = SaveManager(os.path.join(asset_dir, self.config.SAVE_FILE))
+
+        # Volumes (defaults)
+        self.volumes = {
+            "point": 0.3,  # Efeito de ponto
+            "hit": 0.3,    # Efeito de dano
+            "shoot": 0.2,  # Som do disparo
+            "music": 0.3,  # Música de fundo
+        }
 
         # Carrega recursos
         self._load_resources()
@@ -381,7 +409,45 @@ class SpaceEscape:
         # Sons
         self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
         self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"])
+        self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"])
         self.resources.load_music(ASSETS["music"])
+
+        # Aplicar volumes configurados (defaults ou os que forem definidos antes)
+        try:
+            self._apply_volumes()
+        except Exception as e:
+            print(f"Aviso: falha ao aplicar volumes: {e}")
+
+    def _apply_volumes(self):
+        # Sons (SFX)
+        if hasattr(self, "sound_point") and self.sound_point:
+            try:
+                self.sound_point.set_volume(self.volumes.get("point"))
+            except Exception:
+                pass
+        if hasattr(self, "sound_hit") and self.sound_hit:
+            try:
+                self.sound_hit.set_volume(self.volumes.get("hit"))
+            except Exception:
+                pass
+        if hasattr(self, "sound_shoot") and self.sound_shoot:
+            try:
+                self.sound_shoot.set_volume(self.volumes.get("shoot"))
+            except Exception:
+                pass
+        # Música
+        try:
+            pygame.mixer.music.set_volume(self.volumes.get("music"))
+        except Exception:
+            pass
+
+    def set_volume(self, name: str, value):
+        allowed = {"point", "hit", "shoot", "music"}
+        if name not in allowed:
+            raise ValueError(f"Nome de volume inválido: {name}. Válidos: {sorted(allowed)}")
+        v = _normalize_volume_value(value)
+        self.volumes[name] = v
+        self._apply_volumes()
 
     def _create_meteors(self, config: DifficultyConfig) -> List[Meteor]:
         """Cria lista de meteoros baseado na configuração"""
@@ -507,14 +573,10 @@ class SpaceEscape:
         """Velocidade do item por fase: Fase 2 -> 7, Fase 3+ -> 8."""
         return 7 if self.phase == 1 else 8
 
-    def _next_multiple_of_20_above(self, value: int) -> int:
-        rem = value % 20
-        return value + (20 - rem) if rem != 0 else value + 20
-
     def _reset_item_spawn_schedule(self):
         """Inicializa o próximo marco de pontuação para spawn de item."""
         if self._is_item_enabled():
-            self.next_item_spawn_score = self._next_multiple_of_20_above(self.score)
+            self.next_item_spawn_score = _next_multiple_of_20_above(self.score)
         else:
             self.next_item_spawn_score = None
 
@@ -575,6 +637,12 @@ class SpaceEscape:
         by = self.player.rect.top - Sizes.BULLET[1]
         self.bullets.append(Bullet(bx, by))
         self.last_shot_ms = now
+        # Som do disparo
+        if hasattr(self, "sound_shoot") and self.sound_shoot:
+            try:
+                self.sound_shoot.play()
+            except Exception as e:
+                print(f"Aviso: falha ao tocar som de tiro: {e}")
 
     def update_gameplay(self):
         """Atualiza lógica do gameplay"""
