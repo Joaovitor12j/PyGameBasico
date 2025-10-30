@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 class GameState(Enum):
     MENU = "menu"
     PLAYING = "playing"
+    PAUSED = "paused"
     PHASE_VICTORY = "phase_victory"
     GAME_OVER = "game_over"
 
@@ -718,6 +719,77 @@ class SpaceEscape:
         if pygame.time.get_ticks() >= self.phase_victory_end:
             self._advance_phase()
 
+    def run_pause(self) -> bool:
+        """Loop de pausa. Retorna False se deve encerrar o jogo; True caso contrário."""
+        options = ["Continuar", "Salvar e voltar ao menu", "Salvar e fechar o jogo"]
+        selected = 0
+
+        paused = True
+        while paused:
+            # Desenha o último frame de gameplay como fundo
+            self.draw_gameplay()
+
+            # Sobreposição semi-transparente
+            overlay = pygame.Surface((self.config.WIDTH, self.config.HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 160))  # preto com alpha
+            self.screen.blit(overlay, (0, 0))
+
+            title = self.font_large.render("JOGO PAUSADO", True, Colors.YELLOW)
+            self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 120))
+
+            for i, opt in enumerate(options):
+                color = Colors.YELLOW if i == selected else Colors.WHITE
+                label = self.font_small.render(opt, True, color)
+                self.screen.blit(label, (self.config.WIDTH // 2 - label.get_width() // 2, 240 + i * 60))
+
+            hint = self.font_tiny.render("ESC para continuar • ENTER para selecionar", True, Colors.WHITE)
+            self.screen.blit(hint, (self.config.WIDTH // 2 - hint.get_width() // 2, self.config.HEIGHT - 80))
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(options)
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(options)
+                    elif event.key == pygame.K_ESCAPE:
+                        # Continuar
+                        self.state = GameState.PLAYING
+                        paused = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        choice = options[selected]
+                        if choice == "Continuar":
+                            self.state = GameState.PLAYING
+                            paused = False
+                        elif choice == "Salvar e voltar ao menu":
+                            # Salva progresso atual e volta ao menu principal
+                            if self.player is not None:
+                                self.save_manager.save(
+                                    self.difficulty, self.score, self.lives,
+                                    self.phase, self.player.rect.center,
+                                    items_collected=self.items_collected,
+                                    boss_defeated=self.boss_defeated
+                                )
+                            self.state = GameState.MENU
+                            paused = False
+                        elif choice == "Salvar e fechar o jogo":
+                            # Salva progresso atual e encerra aplicação
+                            if self.player is not None:
+                                self.save_manager.save(
+                                    self.difficulty, self.score, self.lives,
+                                    self.phase, self.player.rect.center,
+                                    items_collected=self.items_collected,
+                                    boss_defeated=self.boss_defeated
+                                )
+                            return False
+
+            self.clock.tick(self.config.FPS)
+
+        return True
+
     def run_menu(self) -> bool:
         """Executa menu. Retorna False se deve sair do jogo"""
         menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Sair"]
@@ -731,6 +803,11 @@ class SpaceEscape:
             # Título
             title = self.font_medium.render("🚀 SPACE ESCAPE 🚀", True, Colors.YELLOW)
             self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
+
+            # Highscore
+            high = self.save_manager.get_highscore()
+            hs_label = self.font_tiny.render(f"Maior pontuação: {high}", True, Colors.WHITE)
+            self.screen.blit(hs_label, (self.config.WIDTH // 2 - hs_label.get_width() // 2, 150))
 
             # Opções
             start_y = 220
@@ -887,16 +964,22 @@ class SpaceEscape:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
+                    elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                        # Pausar jogo
+                        self.state = GameState.PAUSED
                     elif event.type == pygame.MOUSEMOTION:
                         self.player.move_to_position(event.pos[0], event.pos[1], self.config.WIDTH, self.config.HEIGHT)
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         self.player.move_to_position(event.pos[0], event.pos[1], self.config.WIDTH, self.config.HEIGHT)
 
-                if running:
+                if running and self.state == GameState.PLAYING:
                     self.update_gameplay()
                     self.draw_gameplay()
                     pygame.display.flip()
                     self.clock.tick(self.config.FPS)
+
+            elif self.state == GameState.PAUSED:
+                running = self.run_pause()
 
             elif self.state == GameState.PHASE_VICTORY:
                 for event in pygame.event.get():
