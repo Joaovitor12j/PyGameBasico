@@ -152,66 +152,77 @@ class ResourceManager:
 # ENTIDADES DO JOGO
 # =============================================================================
 
-class Meteor:
-    """Representa um meteoro"""
+class Meteor(pygame.sprite.Sprite):
+    """Representa um meteoro como um Sprite"""
     def __init__(self, x: int, y: int, speed: int, image: pygame.Surface):
-        self.rect = pygame.Rect(x, y, Sizes.METEOR[0], Sizes.METEOR[1])
-        self.speed = speed
+        super().__init__()
         self.image = image
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.speed = speed
 
-    def update(self, screen_height: int) -> bool:
-        """Atualiza posição. Retorna True se saiu da tela"""
+        self.screen_width = pygame.display.get_surface().get_width()
+        self.screen_height = pygame.display.get_surface().get_height()
+
+    def update(self, game_update: 'SpaceEscape'):
+        """Move para baixo. Reposiciona e pontua (se game_update for passado) se sair da tela."""
         self.rect.y += self.speed
-        return self.rect.y > screen_height
 
-    def randomize_position(self, screen_width: int):
+        if self.rect.top > self.screen_height:
+            self.randomize_position()
+
+            game_update.score += 1
+            if game_update.sound_point:
+                game_update.sound_point.play()
+
+    def randomize_position(self):
         """Reposiciona no topo com posição X aleatória"""
         self.rect.y = random.randint(-100, -40)
-        self.rect.x = random.randint(0, screen_width - self.rect.width)
+        self.rect.x = random.randint(0, self.screen_width - self.rect.width)
 
-    def draw(self, screen: pygame.Surface):
-        """Desenha o meteoro"""
-        screen.blit(self.image, self.rect)
-
-class Item:
-    """Representa um item coletável"""
+class Item(pygame.sprite.Sprite):
+    """Representa um item coletável como um Sprite"""
     def __init__(self, x: int, y: int, speed: int, image: pygame.Surface):
-        self.rect = pygame.Rect(x, y, Sizes.ITEM[0], Sizes.ITEM[1])
-        self.speed = speed
+        super().__init__()
         self.image = image
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.speed = speed
+        self.screen_height = pygame.display.get_surface().get_height()
 
-    def update(self, screen_height: int) -> bool:
-        """Move para baixo. Retorna True se saiu da tela."""
+    def update(self):
+        """Move para baixo. Se auto-destrói se sair da tela."""
         self.rect.y += self.speed
-        return self.rect.y > screen_height
+        if self.rect.top > self.screen_height:
+            self.kill()
 
-    def draw(self, screen: pygame.Surface):
-        screen.blit(self.image, self.rect)
-
-class Bullet:
+class Bullet(pygame.sprite.Sprite):
     """Projétil disparado pelo jogador (sobe e destrói meteoros)."""
     def __init__(self, x: int, y: int, color: tuple = Colors.YELLOW):
-        self.rect = pygame.Rect(x, y, Sizes.BULLET[0], Sizes.BULLET[1])
+        super().__init__()
+        self.image = pygame.Surface((Sizes.BULLET[0], Sizes.BULLET[1]))
+        self.image.fill(color)
+        self.rect = self.image.get_rect(center=(x, y))
         self.vy = Sizes.BULLET_SPEED
-        self.color = color
 
-    def update(self) -> bool:
-        """Atualiza posição do projétil. Retorna True se saiu da tela (topo)."""
+    def update(self):
+        """Atualiza posição do projétil. Se auto-destrói se sair do topo."""
         self.rect.y += self.vy
-        return self.rect.bottom < 0
+        if self.rect.bottom < 0:
+            self.kill()
 
-    def draw(self, screen: pygame.Surface):
-        pygame.draw.rect(screen, self.color, self.rect)
+class Player(pygame.sprite.Sprite):
+    """Representa o jogador como um Sprite"""
 
-class Player:
-    """Representa o jogador"""
     def __init__(self, x: int, y: int, idle_img: pygame.Surface,
                  up_img: pygame.Surface):
+        super().__init__()
         self.idle_img = idle_img
         self.up_img = up_img
-        self.rect = idle_img.get_rect(center=(x, y))
-        self.speed = Sizes.PLAYER_SPEED
         self.current_img = idle_img
+
+        self.image = self.current_img
+        self.rect = self.image.get_rect(center=(x, y))
+
+        self.speed = Sizes.PLAYER_SPEED
         self.moving_up = False
 
     def move_to_position(self, x: int, y: int, screen_width: int, screen_height: int):
@@ -237,10 +248,7 @@ class Player:
 
         # Atualiza sprite
         self.current_img = self.up_img if self.moving_up else self.idle_img
-
-    def draw(self, screen: pygame.Surface):
-        """Desenha o jogador"""
-        screen.blit(self.current_img, self.rect)
+        self.image = self.current_img
 
     def reset_position(self, x: int, y: int):
         """Reposiciona o jogador"""
@@ -344,23 +352,27 @@ class SpaceEscape:
         # Carrega recursos
         self._load_resources()
 
+        # --- Grupos de Sprites ---
+        self.all_sprites = pygame.sprite.Group()       # Grupo para desenhar tudo
+        self.meteor_group = pygame.sprite.Group()      # Grupo para colisões com meteoros
+        self.item_group = pygame.sprite.Group()        # Grupo para colisões com itens
+        self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
+        self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
+
         # Estado do jogo
         self.state = GameState.MENU
         self.difficulty = "Normal"
         self.score = 0
         self.lives = 0
         self.phase = 0
-        self.meteors: List[Meteor] = []
         self.player = None
         self.phase_victory_end = None
         # Progresso por fase
-        self.items_collected = 0  # Itens coletados na fase atual
-        self.boss_defeated = False  # Status do chefe (usado na fase 3)
+        self.items_collected = 0
+        self.boss_defeated = False
         # Itens coletáveis e agendamento de spawn
-        self.items: List[Item] = []
         self.next_item_spawn_score: Optional[int] = None
         # Projéteis
-        self.bullets: List[Bullet] = []
         self.last_shot_ms: int = 0
 
         # Fontes
@@ -449,16 +461,29 @@ class SpaceEscape:
         self.volumes[name] = v
         self._apply_volumes()
 
-    def _create_meteors(self, config: DifficultyConfig) -> List[Meteor]:
-        """Cria lista de meteoros baseado na configuração"""
-        meteors = []
+    def _create_meteors(self, config: DifficultyConfig):
+        """Cria meteoros e os ADICIONA AOS GRUPOS"""
         for _ in range(config.meteors):
             x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
             y = random.randint(-500, -40)
             speed = random.randint(config.speed_min, config.speed_max)
             img = random.choice(self.meteor_imgs)
-            meteors.append(Meteor(x, y, speed, img))
-        return meteors
+
+            # Cria o sprite Meteor
+            meteor = Meteor(x, y, speed, img)
+
+            # Adiciona aos grupos
+            self.all_sprites.add(meteor)
+            self.meteor_group.add(meteor)
+
+    def _clear_game_groups(self):
+        """Limpa todos os sprites do jogo (exceto o jogador)."""
+        self.meteor_group.empty()
+        self.item_group.empty()
+        self.bullet_group.empty()
+        self.all_sprites.empty()
+        if self.player:
+            self.all_sprites.add(self.player)
 
     def new_game(self):
         """Inicia um novo jogo"""
@@ -468,16 +493,30 @@ class SpaceEscape:
         self.phase = 0
         self.items_collected = 0
         self.boss_defeated = False
-        self.items = []
         self.next_item_spawn_score = None
-        # Projéteis
-        self.bullets = []
         self.last_shot_ms = 0
-        self.player = Player(
-            self.config.WIDTH // 2, self.config.HEIGHT - 60,
-            self.player_idle, self.player_up
-        )
-        self.meteors = self._create_meteors(diff_config.scale_for_phase(0))
+
+        # Cria o jogador (se ainda não existir) ou reposiciona
+        if not self.player:
+            self.player = Player(
+                self.config.WIDTH // 2, self.config.HEIGHT - 60,
+                self.player_idle, self.player_up
+            )
+        else:
+            self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
+
+        # Adiciona o jogador aos grupos
+        self.player_group.add(self.player)
+        self.all_sprites.add(self.player)
+
+        # Limpa sprites antigos
+        self.meteor_group.empty()
+        self.item_group.empty()
+        self.bullet_group.empty()
+
+        # Cria novos meteoros
+        self._create_meteors(diff_config.scale_for_phase(0))
+
         self._reset_item_spawn_schedule()
         self.state = GameState.PLAYING
 
@@ -491,27 +530,34 @@ class SpaceEscape:
         self.score = data.get("score", 0)
         self.lives = data.get("lives", 3)
         self.phase = data.get("phase", 0)
-        # Progresso por fase
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
-        # Itens/projéteis ativos no mundo (não persistidos)
-        self.items = []
+
         self.next_item_spawn_score = None
-        self.bullets = []
         self.last_shot_ms = 0
 
-        diff_config = DIFFICULTIES[self.difficulty]
-        self.player = Player(
-            self.config.WIDTH // 2, self.config.HEIGHT - 60,
-            self.player_idle, self.player_up
-        )
+        # Cria ou reposiciona o jogador
+        if not self.player:
+            self.player = Player(
+                self.config.WIDTH // 2, self.config.HEIGHT - 60,
+                self.player_idle, self.player_up
+            )
 
         player_data = data.get("player", {})
         if player_data:
             self.player.rect.x = player_data.get("x", self.player.rect.x)
             self.player.rect.y = player_data.get("y", self.player.rect.y)
 
-        self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self.player_group.add(self.player)
+        self.all_sprites.add(self.player)
+
+        self.meteor_group.empty()
+        self.item_group.empty()
+        self.bullet_group.empty()
+
+        diff_config = DIFFICULTIES[self.difficulty]
+        self._create_meteors(diff_config.scale_for_phase(self.phase))
+
         self._reset_item_spawn_schedule()
         self.state = GameState.PLAYING
         return True
@@ -581,21 +627,22 @@ class SpaceEscape:
             self.next_item_spawn_score = None
 
     def _spawn_item(self):
-        """Cria um item no topo com posição X aleatória.
-        Garante que apenas um item esteja ativo por vez."""
-        # Salvaguarda adicional: não spawna se já existe item ativo
-        if len(self.items) > 0:
+        """Cria um item e o adiciona aos grupos."""
+        if len(self.item_group) > 0:
             return
+
         x = random.randint(0, self.config.WIDTH - Sizes.ITEM[0])
         y = random.randint(-200, -40)
         speed = self._item_speed_for_phase()
-        self.items.append(Item(x, y, speed, self.item_img))
+
+        item = Item(x, y, speed, self.item_img)
+        self.all_sprites.add(item)
+        self.item_group.add(item)
 
     def _handle_meteor_collision(self):
         """Processa colisão com meteoro"""
         self.lives -= 1 # Dano de vida
 
-        # Penalidade de pontos (BUG CORRIGIDO)
         if 0 < self.score < 50:
             self.score = max(0, self.score - 2)
         elif self.score >= 50:
@@ -607,19 +654,24 @@ class SpaceEscape:
     def _advance_phase(self):
         """Avança para a próxima fase"""
         self.phase += 1
-        # Reseta progresso específico da fase
         self.items_collected = 0
         self.boss_defeated = False
-        # Limpa itens e reprograma spawns para a nova fase
-        self.items = []
+
+        # Limpa todos os sprites (exceto o jogador)
+        self.meteor_group.empty()
+        self.item_group.empty()
+        self.bullet_group.empty()
+
+        self.all_sprites.empty()
+        self.all_sprites.add(self.player)
+
         self._reset_item_spawn_schedule()
-        # Limpa projéteis
-        self.bullets = []
         self.last_shot_ms = 0
-        # Reposiciona jogador e recria meteoros com dificuldade escalada
+
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
-        self.meteors = self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self._create_meteors(diff_config.scale_for_phase(self.phase))
+
         self.state = GameState.PLAYING
         self.phase_victory_end = None
 
@@ -632,12 +684,17 @@ class SpaceEscape:
         now = pygame.time.get_ticks()
         if now - self.last_shot_ms < Sizes.FIRE_COOLDOWN_MS:
             return
-        # Centro no topo da nave
+
         bx = self.player.rect.centerx - Sizes.BULLET[0] // 2
         by = self.player.rect.top - Sizes.BULLET[1]
-        self.bullets.append(Bullet(bx, by))
+
+        bullet = Bullet(bx, by)
+
+        self.all_sprites.add(bullet)
+        self.bullet_group.add(bullet)
+
         self.last_shot_ms = now
-        # Som do disparo
+
         if hasattr(self, "sound_shoot") and self.sound_shoot:
             try:
                 self.sound_shoot.play()
@@ -645,83 +702,80 @@ class SpaceEscape:
                 print(f"Aviso: falha ao tocar som de tiro: {e}")
 
     def update_gameplay(self):
-        """Atualiza lógica do gameplay"""
+        """Atualiza lógica do gameplay usando grupos de sprites"""
         keys = pygame.key.get_pressed()
+
         self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
-        # Tiro
+
         self._try_shoot(keys)
+
+        # Atualiza todos os outros sprites
+        # Passamos 'self' (o jogo) para que Meteor possa pontuar
+        self.meteor_group.update(self)
+        self.item_group.update(self)
+        self.bullet_group.update(self)
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
-        # Atualiza meteoros e colisão com jogador
-        for meteor in self.meteors:
-            if meteor.update(self.config.HEIGHT):
-                # Meteoro saiu da tela
-                meteor.randomize_position(self.config.WIDTH)
-                meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
-                meteor.image = random.choice(self.meteor_imgs)
-                self.score += 1 # Pontuação do meteoro
-                if self.sound_point:
-                    self.sound_point.play()
+        # --- 2. Verificação de Colisões ---
 
-            # Verifica colisão com jogador
-            if meteor.rect.colliderect(self.player.rect):
-                self._handle_meteor_collision()
-                meteor.randomize_position(self.config.WIDTH)
-                meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+        # Colisão Jogador vs Meteoros
+        # (False = meteoro não é destruído na colisão, nós o reposicionamos)
+        hits = pygame.sprite.spritecollide(self.player, self.meteor_group, False)
+        if hits:
+            for meteor_hit in hits:
+                self._handle_meteor_collision()  # Lógica de dano e penalidade
+                meteor_hit.randomize_position()  # Reposiciona o meteoro
+                meteor_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
 
                 if self.lives <= 0:
                     self.state = GameState.GAME_OVER
                     return
 
-        # Atualiza projéteis
-        for bullet in self.bullets[:]:
-            if bullet.update():
-                self.bullets.remove(bullet)
-                continue
-            # Colisão projétil-meteoro
-            hit_meteor = None
-            for meteor in self.meteors:
-                if bullet.rect.colliderect(meteor.rect):
-                    hit_meteor = meteor
-                    break
-            if hit_meteor is not None:
-                # Remove projétil
-                if bullet in self.bullets:
-                    self.bullets.remove(bullet)
-                # "Destrói" o meteoro: reposiciona no topo com novo speed/imagem
-                hit_meteor.randomize_position(self.config.WIDTH)
-                hit_meteor.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
-                hit_meteor.image = random.choice(self.meteor_imgs)
-                # Pontuação por destruir com tiro
-                self.score += 1
-                if self.sound_point:
-                    self.sound_point.play()
+        # Colisão Projétil vs Meteoros
+        # (True, True = destrói ambos, bala e meteoro)
+        hits = pygame.sprite.groupcollide(self.bullet_group, self.meteor_group, True, True)
+        if hits:
+            # 'hits' é um dicionário {bala_destruida: [lista_de_meteoros_atingidos]}
+            for meteor_list in hits.values():
+                for _ in meteor_list:  # Para cada meteoro destruído
+                    # Pontuação por destruir com tiro
+                    self.score += 1
+                    if self.sound_point:
+                        self.sound_point.play()
 
-        # Spawns de itens por pontuação (Fase 2 e 3) — apenas 1 por vez e exatamente a cada +20 pontos
+                    # Cria um novo meteoro para substituir o destruído
+                    x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
+                    y = random.randint(-100, -40)
+                    speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+                    img = random.choice(self.meteor_imgs)
+                    new_meteor = Meteor(x, y, speed, img)
+                    self.all_sprites.add(new_meteor)
+                    self.meteor_group.add(new_meteor)
+
+        # Colisão Jogador vs Itens
+        # (True = destrói o item ao coletar)
+        item_hits = pygame.sprite.spritecollide(self.player, self.item_group, True)
+        if item_hits:
+            self.items_collected += len(item_hits)
+            if self.sound_point:
+                self.sound_point.play()
+
+        # --- 3. Lógica de Jogo (Spawns, Vitória) ---
+
+        # (Os loops manuais de update e colisão foram todos removidos)
+
+        # Spawns de itens por pontuação (Fase 2 e 3)
         if self._is_item_enabled():
             if self.next_item_spawn_score is None:
                 self._reset_item_spawn_schedule()
-            # Apenas quando cruza o limiar atual; sem acumular múltiplos
+
             if self.next_item_spawn_score is not None and self.score >= self.next_item_spawn_score:
-                if len(self.items) == 0:
+                if len(self.item_group) == 0:  # Checa se não há itens na tela
                     self._spawn_item()
-                # Avança o agendamento para o próximo múltiplo de 20 sempre
                 self.next_item_spawn_score += 20
 
-        # Atualiza itens e checa coleta
-        for item in self.items[:]:
-            if item.update(self.config.HEIGHT):
-                # Saiu da tela
-                self.items.remove(item)
-                continue
-            if item.rect.colliderect(self.player.rect):
-                self.items.remove(item)
-                self.items_collected += 1
-                if self.sound_point:
-                    self.sound_point.play()
-
-        # Verifica vitória da fase (todas as condições desta fase)
+        # Verifica vitória da fase
         if self._has_phase_victory():
             self.state = GameState.PHASE_VICTORY
             self.phase_victory_end = pygame.time.get_ticks() + self.config.PHASE_VICTORY_DURATION
@@ -730,16 +784,10 @@ class SpaceEscape:
         """Desenha o gameplay"""
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
 
-        # Desenha meteoros e itens
-        for meteor in self.meteors:
-            meteor.draw(self.screen)
-        for item in self.items:
-            item.draw(self.screen)
-        # Desenha projéteis
-        for bullet in self.bullets:
-            bullet.draw(self.screen)
+        # --- Desenha TODOS os sprites de uma vez ---
+        self.all_sprites.draw(self.screen)
 
-        self.player.draw(self.screen)
+        # (Os loops manuais 'for meteor... draw' foram removidos)
 
         # HUD linha 1
         hud_text = self.font_tiny.render(
