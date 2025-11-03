@@ -63,15 +63,15 @@ class Colors:
 
 # Assets
 ASSETS = {
-    "background_level_1": "level_1.png",
-    "background_level_2": "level_2.png",
-    "background_level_3": "level_3.png",
-    "background_menu": "fundo_menu.png",
+    "background_level_1": "Assets/Levels/Level_1/backgroundL1.png",
+    "background_level_2": "Assets/Levels/Level_2/backgroundL2.png",
+    "background_level_3": "Assets/Levels/Level_3/backgroundL3.png",
+    "background_menu": "Assets/Menu/background.png",
     "endgame_bg": "endgame.png",
     "player": "nave1.png",
     "player_up": "nave2.png",
-    "meteor": "meteoro001.png",
-    "meteor2": "meteoro002.png",
+    "meteor": "Assets/Meteors/meteoro001.png",
+    "meteor2": "Assets/Meteors/meteoro002.png",
     "sound_point": "classic-game-action-positive-5-224402.mp3",
     "sound_hit": "stab-f-01-brvhrtz-224599.mp3",
     "music": "game-gaming-background-music-385611.mp3",
@@ -713,7 +713,7 @@ class SpaceEscape:
         # Passamos 'self' (o jogo) para que Meteor possa pontuar
         self.meteor_group.update(self)
         self.item_group.update(self)
-        self.bullet_group.update(self)
+        self.bullet_group.update()
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
