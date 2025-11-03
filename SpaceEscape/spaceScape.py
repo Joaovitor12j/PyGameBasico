@@ -77,6 +77,7 @@ ASSETS = {
     "music": "game-gaming-background-music-385611.mp3",
     "item_collect": "star.png",
     "sound_shoot": "laser.mp3",
+    "explosion_sheet": "Assets/Itens/flame2.png",
 }
 
 # Dimensões padrão
@@ -208,6 +209,39 @@ class Bullet(pygame.sprite.Sprite):
         self.rect.y += self.vy
         if self.rect.bottom < 0:
             self.kill()
+
+class Explosion(pygame.sprite.Sprite):
+    """Animação de explosão baseada em sprite sheet quando meteoro é destruído."""
+    def __init__(self, center: tuple, frames: List[pygame.Surface], frame_time_ms: int = 40, scale: Optional[tuple] = None, lifetime_ms: int = 500):
+        super().__init__()
+        self.frames = frames
+        if scale is not None and len(frames) > 0:
+            self.frames = [pygame.transform.smoothscale(f, scale) for f in frames]
+        self.frame_time_ms = frame_time_ms
+        self.current = 0
+        self.spawn_time = pygame.time.get_ticks()
+        self.last_change = self.spawn_time
+        self.lifetime_ms = lifetime_ms
+        self.image = self.frames[0] if self.frames else pygame.Surface((40, 40), pygame.SRCALPHA)
+        self.rect = self.image.get_rect(center=center)
+
+    def update(self):
+        if not self.frames:
+            self.kill()
+            return
+        now = pygame.time.get_ticks()
+        if now - self.spawn_time >= self.lifetime_ms:
+            self.kill()
+            return
+        if now - self.last_change >= self.frame_time_ms:
+            self.last_change = now
+            self.current += 1
+            if self.current >= len(self.frames):
+                self.kill()
+                return
+            center = self.rect.center
+            self.image = self.frames[self.current]
+            self.rect = self.image.get_rect(center=center)
 
 class Player(pygame.sprite.Sprite):
     """Representa o jogador como um Sprite"""
@@ -357,6 +391,7 @@ class SpaceEscape:
         self.meteor_group = pygame.sprite.Group()      # Grupo para colisões com meteoros
         self.item_group = pygame.sprite.Group()        # Grupo para colisões com itens
         self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
+        self.explosion_group = pygame.sprite.Group()   # Grupo para animações de explosão
         self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
 
         # Estado do jogo
@@ -422,9 +457,26 @@ class SpaceEscape:
         self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
         self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"])
         self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"])
-        self.resources.load_music(ASSETS["music"])
+        self.resources.load_music(ASSETS["music"]) 
 
-        # Aplicar volumes configurados (defaults ou os que forem definidos antes)
+        self.explosion_frames: List[pygame.Surface] = []
+        try:
+            sheet_path = self.resources._resolve_path(ASSETS["explosion_sheet"])
+            if os.path.exists(sheet_path):
+                sheet = pygame.image.load(sheet_path).convert_alpha()
+                sheet_w, sheet_h = sheet.get_width(), sheet.get_height()
+                cols = 8
+                rows = 8
+                cell_w = sheet_w // cols
+                cell_h = sheet_h // rows
+                for r in range(rows):
+                    for c in range(cols):
+                        rect = pygame.Rect(c * cell_w, r * cell_h, cell_w, cell_h)
+                        frame = sheet.subsurface(rect).copy()
+                        self.explosion_frames.append(frame)
+        except Exception as e:
+            print(f"Aviso: falha ao carregar frames de explosão: {e}")
+
         try:
             self._apply_volumes()
         except Exception as e:
@@ -481,6 +533,7 @@ class SpaceEscape:
         self.meteor_group.empty()
         self.item_group.empty()
         self.bullet_group.empty()
+        self.explosion_group.empty()
         self.all_sprites.empty()
         if self.player:
             self.all_sprites.add(self.player)
@@ -513,6 +566,7 @@ class SpaceEscape:
         self.meteor_group.empty()
         self.item_group.empty()
         self.bullet_group.empty()
+        self.explosion_group.empty()
 
         # Cria novos meteoros
         self._create_meteors(diff_config.scale_for_phase(0))
@@ -554,6 +608,7 @@ class SpaceEscape:
         self.meteor_group.empty()
         self.item_group.empty()
         self.bullet_group.empty()
+        self.explosion_group.empty()
 
         diff_config = DIFFICULTIES[self.difficulty]
         self._create_meteors(diff_config.scale_for_phase(self.phase))
@@ -661,6 +716,7 @@ class SpaceEscape:
         self.meteor_group.empty()
         self.item_group.empty()
         self.bullet_group.empty()
+        self.explosion_group.empty()
 
         self.all_sprites.empty()
         self.all_sprites.add(self.player)
@@ -714,6 +770,7 @@ class SpaceEscape:
         self.meteor_group.update(self)
         self.item_group.update(self)
         self.bullet_group.update()
+        self.explosion_group.update()
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
@@ -736,9 +793,11 @@ class SpaceEscape:
         # (True, True = destrói ambos, bala e meteoro)
         hits = pygame.sprite.groupcollide(self.bullet_group, self.meteor_group, True, True)
         if hits:
-            # 'hits' é um dicionário {bala_destruida: [lista_de_meteoros_atingidos]}
             for meteor_list in hits.values():
-                for _ in meteor_list:  # Para cada meteoro destruído
+                for meteor in meteor_list:
+                    if hasattr(self, "explosion_frames") and self.explosion_frames:
+                        exp = Explosion(meteor.rect.center, self.explosion_frames, frame_time_ms=40, scale=(80, 80))
+                        self.explosion_group.add(exp)
                     # Pontuação por destruir com tiro
                     self.score += 1
                     if self.sound_point:
@@ -786,6 +845,8 @@ class SpaceEscape:
 
         # --- Desenha TODOS os sprites de uma vez ---
         self.all_sprites.draw(self.screen)
+        # Explosões também são desenhadas (caso não estejam em all_sprites)
+        self.explosion_group.draw(self.screen)
 
         # (Os loops manuais 'for meteor... draw' foram removidos)
 
@@ -817,7 +878,6 @@ class SpaceEscape:
             f"Fase {self.phase + 1} concluída!", True, Colors.WHITE
         )
 
-        # Cronômetro
         remaining_ms = max(0, self.phase_victory_end - pygame.time.get_ticks())
         remaining_sec = (remaining_ms // 1000) + (1 if remaining_ms % 1000 > 0 else 0)
         timer_text = self.font_small.render(
@@ -842,12 +902,10 @@ class SpaceEscape:
 
         paused = True
         while paused:
-            # Desenha o último frame de gameplay como fundo
             self.draw_gameplay()
 
-            # Sobreposição semi-transparente
             overlay = pygame.Surface((self.config.WIDTH, self.config.HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 160))  # preto com alpha
+            overlay.fill((0, 0, 0, 160))
             self.screen.blit(overlay, (0, 0))
 
             title = self.font_large.render("JOGO PAUSADO", True, Colors.YELLOW)
