@@ -77,7 +77,7 @@ ASSETS = {
     "music": "game-gaming-background-music-385611.mp3",
     "item_collect": "star.png",
     "sound_shoot": "laser.mp3",
-    "explosion_sheet": "Assets/Itens/flame2.png",
+    "explosion_sheet": "Assets/Itens/flame.png",
 }
 
 # Dimensões padrão
