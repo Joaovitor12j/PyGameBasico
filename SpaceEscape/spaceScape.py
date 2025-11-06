@@ -78,6 +78,7 @@ ASSETS = {
     "item_collect": "star.png",
     "sound_shoot": "laser.mp3",
     "explosion_sheet": "Assets/Itens/flame.png",
+    "shield": "Assets/Itens/shield.png",
 }
 
 # Dimensões padrão
@@ -345,6 +346,10 @@ def _next_multiple_of_20_above(value: int) -> int:
     rem = value % 20
     return value + (20 - rem) if rem != 0 else value + 20
 
+def _next_multiple_of_33_above(value: int) -> int:
+    rem = value % 33
+    return value + (33 - rem) if rem != 0 else value + 33
+
 
 def _normalize_volume_value(value) -> float:
     if isinstance(value, int):
@@ -390,6 +395,7 @@ class SpaceEscape:
         self.all_sprites = pygame.sprite.Group()       # Grupo para desenhar tudo
         self.meteor_group = pygame.sprite.Group()      # Grupo para colisões com meteoros
         self.item_group = pygame.sprite.Group()        # Grupo para colisões com itens
+        self.shield_group = pygame.sprite.Group()      # Grupo para o item de escudo
         self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
         self.explosion_group = pygame.sprite.Group()   # Grupo para animações de explosão
         self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
@@ -407,6 +413,9 @@ class SpaceEscape:
         self.boss_defeated = False
         # Itens coletáveis e agendamento de spawn
         self.next_item_spawn_score: Optional[int] = None
+        self.next_shield_spawn_score: Optional[int] = None
+        # Estado de invulnerabilidade (escudo)
+        self.invulnerable_until_ms: int = 0
         # Projéteis
         self.last_shot_ms: int = 0
 
@@ -452,11 +461,15 @@ class SpaceEscape:
         self.item_img = self.resources.load_image(
             "item_collect", ASSETS["item_collect"], Sizes.ITEM, Colors.YELLOW
         )
+        # Shield coletável
+        self.shield_img = self.resources.load_image(
+            "shield", ASSETS["shield"], Sizes.ITEM, Colors.BLUE
+        )
 
         # Sons
-        self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
-        self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"])
-        self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"])
+        self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"]) 
+        self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"]) 
+        self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"]) 
         self.resources.load_music(ASSETS["music"]) 
 
         self.explosion_frames: List[pygame.Surface] = []
@@ -532,6 +545,7 @@ class SpaceEscape:
         """Limpa todos os sprites do jogo (exceto o jogador)."""
         self.meteor_group.empty()
         self.item_group.empty()
+        self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
         self.all_sprites.empty()
@@ -547,6 +561,8 @@ class SpaceEscape:
         self.items_collected = 0
         self.boss_defeated = False
         self.next_item_spawn_score = None
+        self.next_shield_spawn_score = None
+        self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
 
         # Cria o jogador (se ainda não existir) ou reposiciona
@@ -565,6 +581,7 @@ class SpaceEscape:
         # Limpa sprites antigos
         self.meteor_group.empty()
         self.item_group.empty()
+        self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
 
@@ -572,6 +589,7 @@ class SpaceEscape:
         self._create_meteors(diff_config.scale_for_phase(0))
 
         self._reset_item_spawn_schedule()
+        self._reset_shield_spawn_schedule()
         self.state = GameState.PLAYING
 
     def load_game(self) -> bool:
@@ -588,6 +606,8 @@ class SpaceEscape:
         self.boss_defeated = data.get("boss_defeated", False)
 
         self.next_item_spawn_score = None
+        self.next_shield_spawn_score = None
+        self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
 
         # Cria ou reposiciona o jogador
@@ -607,6 +627,7 @@ class SpaceEscape:
 
         self.meteor_group.empty()
         self.item_group.empty()
+        self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
 
@@ -614,6 +635,7 @@ class SpaceEscape:
         self._create_meteors(diff_config.scale_for_phase(self.phase))
 
         self._reset_item_spawn_schedule()
+        self._reset_shield_spawn_schedule()
         self.state = GameState.PLAYING
         return True
 
@@ -681,6 +703,10 @@ class SpaceEscape:
         else:
             self.next_item_spawn_score = None
 
+    def _reset_shield_spawn_schedule(self):
+        """Inicializa o próximo marco de pontuação para spawn de shield (a cada 33 pontos, sempre ativo)."""
+        self.next_shield_spawn_score = _next_multiple_of_33_above(self.score)
+
     def _spawn_item(self):
         """Cria um item e o adiciona aos grupos."""
         if len(self.item_group) > 0:
@@ -693,6 +719,17 @@ class SpaceEscape:
         item = Item(x, y, speed, self.item_img)
         self.all_sprites.add(item)
         self.item_group.add(item)
+
+    def _spawn_shield(self):
+        """Cria um shield e o adiciona aos grupos."""
+        if len(self.shield_group) > 0:
+            return
+        x = random.randint(0, self.config.WIDTH - Sizes.ITEM[0])
+        y = random.randint(-200, -40)
+        speed = self._item_speed_for_phase() if hasattr(self, '_item_speed_for_phase') else 7
+        shield = Item(x, y, speed, self.shield_img)
+        self.all_sprites.add(shield)
+        self.shield_group.add(shield)
 
     def _handle_meteor_collision(self):
         """Processa colisão com meteoro"""
@@ -715,6 +752,7 @@ class SpaceEscape:
         # Limpa todos os sprites (exceto o jogador)
         self.meteor_group.empty()
         self.item_group.empty()
+        self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
 
@@ -722,6 +760,8 @@ class SpaceEscape:
         self.all_sprites.add(self.player)
 
         self._reset_item_spawn_schedule()
+        self._reset_shield_spawn_schedule()
+        self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
 
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
@@ -768,7 +808,8 @@ class SpaceEscape:
         # Atualiza todos os outros sprites
         # Passamos 'self' (o jogo) para que Meteor possa pontuar
         self.meteor_group.update(self)
-        self.item_group.update(self)
+        self.item_group.update()
+        self.shield_group.update()
         self.bullet_group.update()
         self.explosion_group.update()
 
@@ -780,12 +821,16 @@ class SpaceEscape:
         # (False = meteoro não é destruído na colisão, nós o reposicionamos)
         hits = pygame.sprite.spritecollide(self.player, self.meteor_group, False)
         if hits:
+            now = pygame.time.get_ticks()
+            inv_active = now < self.invulnerable_until_ms
             for meteor_hit in hits:
-                self._handle_meteor_collision()  # Lógica de dano e penalidade
-                meteor_hit.randomize_position()  # Reposiciona o meteoro
+                if not inv_active:
+                    self._handle_meteor_collision()  # Lógica de dano e penalidade
+                # Sempre reposiciona o meteoro
+                meteor_hit.randomize_position()
                 meteor_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
 
-                if self.lives <= 0:
+                if self.lives <= 0 and not inv_active:
                     self.state = GameState.GAME_OVER
                     return
 
@@ -820,6 +865,14 @@ class SpaceEscape:
             if self.sound_point:
                 self.sound_point.play()
 
+        # Colisão Jogador vs Shield
+        shield_hits = pygame.sprite.spritecollide(self.player, self.shield_group, True)
+        if shield_hits:
+            # 5 segundos de invulnerabilidade
+            self.invulnerable_until_ms = pygame.time.get_ticks() + 5000
+            if self.sound_point:
+                self.sound_point.play()
+
         # --- 3. Lógica de Jogo (Spawns, Vitória) ---
 
         # (Os loops manuais de update e colisão foram todos removidos)
@@ -833,6 +886,14 @@ class SpaceEscape:
                 if len(self.item_group) == 0:  # Checa se não há itens na tela
                     self._spawn_item()
                 self.next_item_spawn_score += 20
+
+        # Spawn de shield a cada 33 pontos (sempre ativo, independente da fase)
+        if self.next_shield_spawn_score is None:
+            self._reset_shield_spawn_schedule()
+        if self.next_shield_spawn_score is not None and self.score >= self.next_shield_spawn_score:
+            if len(self.shield_group) == 0:  # Checa se não há shield na tela
+                self._spawn_shield()
+            self.next_shield_spawn_score += 33
 
         # Verifica vitória da fase
         if self._has_phase_victory():
