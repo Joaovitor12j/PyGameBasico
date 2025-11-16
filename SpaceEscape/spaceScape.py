@@ -167,16 +167,10 @@ class Enemy(pygame.sprite.Sprite):
         self.screen_width = pygame.display.get_surface().get_width()
         self.screen_height = pygame.display.get_surface().get_height()
 
-    def update(self, game_update: 'SpaceEscape'):
-        """Move para baixo. Reposiciona e pontua (se game_update for passado) se sair da tela."""
+    def update(self):
         self.rect.y += self.speed
-
         if self.rect.top > self.screen_height:
             self.randomize_position()
-
-            game_update.score += 1
-            if game_update.sound_point:
-                game_update.sound_point.play()
 
     def randomize_position(self):
         """Reposiciona no topo com posição X aleatória"""
@@ -827,7 +821,7 @@ class SpaceEscape:
         self._try_shoot(keys)
 
         # Atualiza todos os outros sprites
-        self.enemy_group.update(self)
+        self.enemy_group.update()
         self.item_group.update()
         self.shield_group.update()
         self.bullet_group.update()
