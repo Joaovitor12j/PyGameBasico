@@ -31,7 +31,7 @@ class GameConfig:
 @dataclass
 class DifficultyConfig:
     """Configuração de dificuldade"""
-    meteors: int
+    enemies: int
     speed_min: int
     speed_max: int
     lives: int
@@ -39,7 +39,7 @@ class DifficultyConfig:
     def scale_for_phase(self, phase: int):
         """Retorna configuração escalada para a fase"""
         return DifficultyConfig(
-            meteors=self.meteors + 2 * phase,
+            enemies=self.enemies + 2 * phase,
             speed_min=self.speed_min + phase,
             speed_max=self.speed_max + phase,
             lives=self.lives
@@ -48,9 +48,9 @@ class DifficultyConfig:
 
 # Dificuldades disponíveis
 DIFFICULTIES = {
-    "Fácil": DifficultyConfig(meteors=3, speed_min=2, speed_max=4, lives=20),
-    "Normal": DifficultyConfig(meteors=6, speed_min=3, speed_max=6, lives=10),
-    "Difícil": DifficultyConfig(meteors=10, speed_min=4, speed_max=8, lives=5),
+    "Fácil": DifficultyConfig(enemies=3, speed_min=2, speed_max=4, lives=20),
+    "Normal": DifficultyConfig(enemies=6, speed_min=3, speed_max=6, lives=10),
+    "Difícil": DifficultyConfig(enemies=10, speed_min=4, speed_max=8, lives=5),
 }
 
 # Cores
@@ -70,8 +70,6 @@ ASSETS = {
     "endgame_bg": "endgame.png",
     "player": "nave1.png",
     "player_up": "nave2.png",
-    "meteor": "Assets/Meteors/meteoro001.png",
-    "meteor2": "Assets/Meteors/meteoro002.png",
     "sound_point": "classic-game-action-positive-5-224402.mp3",
     "sound_hit": "stab-f-01-brvhrtz-224599.mp3",
     "music": "game-gaming-background-music-385611.mp3",
@@ -89,7 +87,7 @@ ASSETS = {
 class Sizes:
     PLAYER_IDLE = (80, 60)
     PLAYER_UP = (200, 140)
-    METEOR = (40, 40)
+    ENEMY = (40, 40)
     ITEM = (32, 32)
     PLAYER_SPEED = 6
     BULLET = (6, 12)
@@ -158,8 +156,8 @@ class ResourceManager:
 # ENTIDADES DO JOGO
 # =============================================================================
 
-class Meteor(pygame.sprite.Sprite):
-    """Representa um meteoro como um Sprite"""
+class Enemy(pygame.sprite.Sprite):
+    """Representa uma nave inimiga como um Sprite"""
     def __init__(self, x: int, y: int, speed: int, image: pygame.Surface):
         super().__init__()
         self.image = image
@@ -201,7 +199,7 @@ class Item(pygame.sprite.Sprite):
             self.kill()
 
 class Bullet(pygame.sprite.Sprite):
-    """Projétil disparado pelo jogador (sobe e destrói meteoros)."""
+    """Projétil disparado pelo jogador (sobe e destrói naves inimigas)."""
     def __init__(self, x: int, y: int, color: tuple = Colors.YELLOW):
         super().__init__()
         self.image = pygame.Surface((Sizes.BULLET[0], Sizes.BULLET[1]))
@@ -216,7 +214,7 @@ class Bullet(pygame.sprite.Sprite):
             self.kill()
 
 class Explosion(pygame.sprite.Sprite):
-    """Animação de explosão baseada em sprite sheet quando meteoro é destruído."""
+    """Animação de explosão baseada em sprite sheet quando uma nave inimiga é destruída."""
     def __init__(self, center: tuple, frames: List[pygame.Surface], frame_time_ms: int = 40, scale: Optional[tuple] = None, lifetime_ms: int = 500):
         super().__init__()
         self.frames = frames
@@ -397,7 +395,7 @@ class SpaceEscape:
 
         # --- Grupos de Sprites ---
         self.all_sprites = pygame.sprite.Group()       # Grupo para desenhar tudo
-        self.meteor_group = pygame.sprite.Group()      # Grupo para colisões com meteoros
+        self.enemy_group = pygame.sprite.Group()      # Grupo para colisões com naves
         self.item_group = pygame.sprite.Group()        # Grupo para colisões com itens
         self.shield_group = pygame.sprite.Group()      # Grupo para o item de escudo
         self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
@@ -454,18 +452,17 @@ class SpaceEscape:
             "player_up", ASSETS["player_up"], Sizes.PLAYER_UP, Colors.BLUE
         )
 
-        # Enemies by level (replace old meteor sprites per phase)
         self.enemy_level1_img = self.resources.load_image(
-            "enemy_level1", ASSETS["enemy_level1"], Sizes.METEOR, Colors.RED
+            "enemy_level1", ASSETS["enemy_level1"], Sizes.ENEMY, Colors.RED
         )
         self.enemy_level2_img = self.resources.load_image(
-            "enemy_level2", ASSETS["enemy_level2"], Sizes.METEOR, Colors.YELLOW
+            "enemy_level2", ASSETS["enemy_level2"], Sizes.ENEMY, Colors.YELLOW
         )
         self.enemy_level3_img = self.resources.load_image(
-            "enemy_level3", ASSETS["enemy_level3"], Sizes.METEOR, Colors.RED
+            "enemy_level3", ASSETS["enemy_level3"], Sizes.ENEMY, Colors.RED
         )
         self.enemy_level32_img = self.resources.load_image(
-            "enemy_level32", ASSETS["enemy_level32"], Sizes.METEOR, Colors.YELLOW
+            "enemy_level32", ASSETS["enemy_level32"], Sizes.ENEMY, Colors.YELLOW
         )
 
         # Item coletável
@@ -550,25 +547,24 @@ class SpaceEscape:
         else:
             return [self.enemy_level3_img, self.enemy_level32_img]
 
-    def _create_meteors(self, config: DifficultyConfig):
-        """Cria meteoros e os ADICIONA AOS GRUPOS"""
-        for _ in range(config.meteors):
-            x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
+    def _create_enemies(self, config: DifficultyConfig):
+        """Cria naves inimigas e os ADICIONA AOS GRUPOS"""
+        for _ in range(config.enemies):
+            x = random.randint(0, self.config.WIDTH - Sizes.ENEMY[0])
             y = random.randint(-500, -40)
             speed = random.randint(config.speed_min, config.speed_max)
             enemy_imgs = self._get_enemy_images_for_phase()
             img = random.choice(enemy_imgs)
 
-            # Cria o sprite Meteor (com sprite de inimigo)
-            meteor = Meteor(x, y, speed, img)
+            enemy = Enemy(x, y, speed, img)
 
             # Adiciona aos grupos
-            self.all_sprites.add(meteor)
-            self.meteor_group.add(meteor)
+            self.all_sprites.add(enemy)
+            self.enemy_group.add(enemy)
 
     def _clear_game_groups(self):
         """Limpa todos os sprites do jogo (exceto o jogador)."""
-        self.meteor_group.empty()
+        self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
         self.bullet_group.empty()
@@ -604,14 +600,14 @@ class SpaceEscape:
         self.all_sprites.add(self.player)
 
         # Limpa sprites antigos
-        self.meteor_group.empty()
+        self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
 
-        # Cria novos meteoros
-        self._create_meteors(diff_config.scale_for_phase(0))
+        # Cria novas naves inimigas
+        self._create_enemies(diff_config.scale_for_phase(0))
 
         self._reset_item_spawn_schedule()
         self._reset_shield_spawn_schedule()
@@ -650,14 +646,14 @@ class SpaceEscape:
         self.player_group.add(self.player)
         self.all_sprites.add(self.player)
 
-        self.meteor_group.empty()
+        self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
 
         diff_config = DIFFICULTIES[self.difficulty]
-        self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self._create_enemies(diff_config.scale_for_phase(self.phase))
 
         self._reset_item_spawn_schedule()
         self._reset_shield_spawn_schedule()
@@ -756,8 +752,8 @@ class SpaceEscape:
         self.all_sprites.add(shield)
         self.shield_group.add(shield)
 
-    def _handle_meteor_collision(self):
-        """Processa colisão com meteoro"""
+    def _handle_enemy_collision(self):
+        """Processa colisão com naves inimigas"""
         self.lives -= 1 # Dano de vida
 
         if 0 < self.score < 50:
@@ -775,7 +771,7 @@ class SpaceEscape:
         self.boss_defeated = False
 
         # Limpa todos os sprites (exceto o jogador)
-        self.meteor_group.empty()
+        self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
         self.bullet_group.empty()
@@ -791,7 +787,7 @@ class SpaceEscape:
 
         self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
-        self._create_meteors(diff_config.scale_for_phase(self.phase))
+        self._create_enemies(diff_config.scale_for_phase(self.phase))
 
         self.state = GameState.PLAYING
         self.phase_victory_end = None
@@ -831,8 +827,7 @@ class SpaceEscape:
         self._try_shoot(keys)
 
         # Atualiza todos os outros sprites
-        # Passamos 'self' (o jogo) para que Meteor possa pontuar
-        self.meteor_group.update(self)
+        self.enemy_group.update(self)
         self.item_group.update()
         self.shield_group.update()
         self.bullet_group.update()
@@ -842,46 +837,45 @@ class SpaceEscape:
 
         # --- 2. Verificação de Colisões ---
 
-        # Colisão Jogador vs Meteoros
-        # (False = meteoro não é destruído na colisão, nós o reposicionamos)
-        hits = pygame.sprite.spritecollide(self.player, self.meteor_group, False)
+        # (False = Inimigo não é destruído na colisão, nós o reposicionamos)
+        hits = pygame.sprite.spritecollide(self.player, self.enemy_group, False)
         if hits:
             now = pygame.time.get_ticks()
             inv_active = now < self.invulnerable_until_ms
-            for meteor_hit in hits:
+            for enemy_hit in hits:
                 if not inv_active:
-                    self._handle_meteor_collision()  # Lógica de dano e penalidade
-                # Sempre reposiciona o meteoro
-                meteor_hit.randomize_position()
-                meteor_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+                    self._handle_enemy_collision()  # Lógica de dano e penalidade
+                # Sempre reposiciona a nave inimiga
+                enemy_hit.randomize_position()
+                enemy_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
 
                 if self.lives <= 0 and not inv_active:
                     self.state = GameState.GAME_OVER
                     return
 
-        # Colisão Projétil vs Meteoros
-        # (True, True = destrói ambos, bala e meteoro)
-        hits = pygame.sprite.groupcollide(self.bullet_group, self.meteor_group, True, True)
+        # Colisão Projétil vs Naves inimigas
+        # (True, True = destrói ambos, bala e nave inimiga)
+        hits = pygame.sprite.groupcollide(self.bullet_group, self.enemy_group, True, True)
         if hits:
-            for meteor_list in hits.values():
-                for meteor in meteor_list:
+            for enemy_list in hits.values():
+                for enemy in enemy_list:
                     if hasattr(self, "explosion_frames") and self.explosion_frames:
-                        exp = Explosion(meteor.rect.center, self.explosion_frames, frame_time_ms=40, scale=(80, 80))
+                        exp = Explosion(enemy.rect.center, self.explosion_frames, frame_time_ms=40, scale=(80, 80))
                         self.explosion_group.add(exp)
                     # Pontuação por destruir com tiro
                     self.score += 1
                     if self.sound_point:
                         self.sound_point.play()
 
-                    # Cria um novo meteoro para substituir o destruído
-                    x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
+                    # Cria um nova nave inimiga para substituir o destruída
+                    x = random.randint(0, self.config.WIDTH - Sizes.ENEMY[0])
                     y = random.randint(-100, -40)
                     speed = random.randint(diff_config.speed_min, diff_config.speed_max)
                     enemy_imgs = self._get_enemy_images_for_phase()
                     img = random.choice(enemy_imgs)
-                    new_meteor = Meteor(x, y, speed, img)
-                    self.all_sprites.add(new_meteor)
-                    self.meteor_group.add(new_meteor)
+                    new_enemy = Enemy(x, y, speed, img)
+                    self.all_sprites.add(new_enemy)
+                    self.enemy_group.add(new_enemy)
 
         # Colisão Jogador vs Itens
         # (True = destrói o item ao coletar)
@@ -934,8 +928,6 @@ class SpaceEscape:
         self.all_sprites.draw(self.screen)
         # Explosões também são desenhadas (caso não estejam em all_sprites)
         self.explosion_group.draw(self.screen)
-
-        # (Os loops manuais 'for meteor... draw' foram removidos)
 
         # HUD linha 1
         hud_text = self.font_tiny.render(
