@@ -383,6 +383,13 @@ class SpaceEscape:
             "shoot": 0.2,  # Som do disparo
             "music": 0.3,  # Música de fundo
         }
+        # Flags de habilitação de sons (permite desativar individualmente)
+        self.sound_enabled = {
+            "point": True,
+            "hit": True,
+            "shoot": True,
+            "music": True,
+        }
 
         # Carrega recursos
         self._load_resources()
@@ -499,24 +506,28 @@ class SpaceEscape:
 
     def _apply_volumes(self):
         # Sons (SFX)
+        point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
+        hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
+        shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
+        music_vol = self.volumes.get("music", 0.0) if self.sound_enabled.get("music", True) else 0.0
+
         if hasattr(self, "sound_point") and self.sound_point:
             try:
-                self.sound_point.set_volume(self.volumes.get("point"))
+                self.sound_point.set_volume(point_vol)
             except Exception:
                 pass
         if hasattr(self, "sound_hit") and self.sound_hit:
             try:
-                self.sound_hit.set_volume(self.volumes.get("hit"))
+                self.sound_hit.set_volume(hit_vol)
             except Exception:
                 pass
         if hasattr(self, "sound_shoot") and self.sound_shoot:
             try:
-                self.sound_shoot.set_volume(self.volumes.get("shoot"))
+                self.sound_shoot.set_volume(shoot_vol)
             except Exception:
                 pass
-        # Música
         try:
-            pygame.mixer.music.set_volume(self.volumes.get("music"))
+            pygame.mixer.music.set_volume(music_vol)
         except Exception:
             pass
 
@@ -1039,7 +1050,7 @@ class SpaceEscape:
 
     def run_menu(self) -> bool:
         """Executa menu. Retorna False se deve sair do jogo"""
-        menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Sair"]
+        menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Configurações", "Sair"]
         selected = 0
         message = ""
         message_timer = 0
@@ -1099,6 +1110,8 @@ class SpaceEscape:
                                 message_timer = self.config.FPS * 2
                         elif choice == "Escolher dificuldade":
                             self._difficulty_menu()
+                        elif choice == "Configurações":
+                            self._settings_menu()
                         elif choice == "Sair":
                             return False
                     elif event.key == pygame.K_ESCAPE:
@@ -1143,6 +1156,81 @@ class SpaceEscape:
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         self.difficulty = diffs[selected]
                         choosing = False
+                    elif event.key == pygame.K_ESCAPE:
+                        choosing = False
+
+            self.clock.tick(self.config.FPS)
+
+    def _settings_menu(self):
+        """Menu de configurações de áudio (volumes e ativação por som)."""
+        options = [
+            ("music", "Música"),
+            ("point", "Som de ponto"),
+            ("hit", "Som de dano"),
+            ("shoot", "Som de tiro"),
+        ]
+        selected = 0
+        choosing = True
+
+        def _vol_to_percent(v: float) -> int:
+            try:
+                return max(0, min(100, int(round(v * 100))))
+            except Exception:
+                return 0
+
+        while choosing:
+            self.screen.blit(self.bg_menu, (0, 0))
+
+            title = self.font_medium.render("Configurações de Áudio", True, Colors.YELLOW)
+            self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
+
+            start_y = 200
+            for i, (key, label_text) in enumerate(options):
+                enabled = self.sound_enabled.get(key, True)
+                vol = _vol_to_percent(self.volumes.get(key, 0.0))
+                status = "Ligado" if enabled else "Desligado"
+                text = f"{label_text}: {vol}%  ({status})"
+                color = Colors.YELLOW if i == selected else Colors.WHITE
+                label = self.font_tiny.render(text, True, color)
+                self.screen.blit(label, (self.config.WIDTH // 2 - label.get_width() // 2, start_y + i * 40))
+
+            hint1 = self.font_tiny.render("↑/↓ selecionar  •  ←/→ volume  •  ENTER/ESPAÇO liga/desliga  •  ESC voltar", True, Colors.WHITE)
+            self.screen.blit(hint1, (self.config.WIDTH // 2 - hint1.get_width() // 2, 420))
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    choosing = False
+                    self.state = GameState.MENU
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(options)
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(options)
+                    elif event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_RIGHT, pygame.K_d):
+                        key, _ = options[selected]
+                        step = -5 if event.key in (pygame.K_LEFT, pygame.K_a) else 5
+                        current = _vol_to_percent(self.volumes.get(key, 0.0))
+                        new_percent = max(0, min(100, current + step))
+                        self.volumes[key] = new_percent / 100.0
+                        self._apply_volumes()
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        key, _ = options[selected]
+                        self.sound_enabled[key] = not self.sound_enabled.get(key, True)
+                        # aplica imediatamente
+                        if key == "music":
+                            if self.sound_enabled[key]:
+                                try:
+                                    pygame.mixer.music.unpause()
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    pygame.mixer.music.pause()
+                                except Exception:
+                                    pass
+                        self._apply_volumes()
                     elif event.key == pygame.K_ESCAPE:
                         choosing = False
 
