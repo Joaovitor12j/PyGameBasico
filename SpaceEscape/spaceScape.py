@@ -79,6 +79,10 @@ ASSETS = {
     "sound_shoot": "laser.mp3",
     "explosion_sheet": "Assets/Itens/flame.png",
     "shield": "Assets/Itens/shield.png",
+    "enemy_level1": "Assets/Enemies/enemy_level1.png",
+    "enemy_level2": "Assets/Enemies/enemy_level2.png",
+    "enemy_level3": "Assets/Enemies/enemy_level3.png",
+    "enemy_level32": "Assets/Enemies/enemy_level32.png",
 }
 
 # Dimensões padrão
@@ -450,12 +454,19 @@ class SpaceEscape:
             "player_up", ASSETS["player_up"], Sizes.PLAYER_UP, Colors.BLUE
         )
 
-        self.meteor_imgs = [
-            self.resources.load_image("meteor1", ASSETS["meteor"],
-                                      Sizes.METEOR, Colors.RED),
-            self.resources.load_image("meteor2", ASSETS["meteor2"],
-                                      Sizes.METEOR, Colors.YELLOW)
-        ]
+        # Enemies by level (replace old meteor sprites per phase)
+        self.enemy_level1_img = self.resources.load_image(
+            "enemy_level1", ASSETS["enemy_level1"], Sizes.METEOR, Colors.RED
+        )
+        self.enemy_level2_img = self.resources.load_image(
+            "enemy_level2", ASSETS["enemy_level2"], Sizes.METEOR, Colors.YELLOW
+        )
+        self.enemy_level3_img = self.resources.load_image(
+            "enemy_level3", ASSETS["enemy_level3"], Sizes.METEOR, Colors.RED
+        )
+        self.enemy_level32_img = self.resources.load_image(
+            "enemy_level32", ASSETS["enemy_level32"], Sizes.METEOR, Colors.YELLOW
+        )
 
         # Item coletável
         self.item_img = self.resources.load_image(
@@ -526,15 +537,29 @@ class SpaceEscape:
         self.volumes[name] = v
         self._apply_volumes()
 
+    def _get_enemy_images_for_phase(self) -> List[pygame.Surface]:
+        """Retorna a lista de sprites de inimigos conforme a fase atual.
+        Fase 1 (phase==0): enemy_level1
+        Fase 2 (phase==1): enemy_level2
+        Fase 3+ (phase>=2): inimigos aleatórios entre enemy_level3 e enemy_level32
+        """
+        if self.phase == 0:
+            return [self.enemy_level1_img]
+        elif self.phase == 1:
+            return [self.enemy_level2_img]
+        else:
+            return [self.enemy_level3_img, self.enemy_level32_img]
+
     def _create_meteors(self, config: DifficultyConfig):
         """Cria meteoros e os ADICIONA AOS GRUPOS"""
         for _ in range(config.meteors):
             x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
             y = random.randint(-500, -40)
             speed = random.randint(config.speed_min, config.speed_max)
-            img = random.choice(self.meteor_imgs)
+            enemy_imgs = self._get_enemy_images_for_phase()
+            img = random.choice(enemy_imgs)
 
-            # Cria o sprite Meteor
+            # Cria o sprite Meteor (com sprite de inimigo)
             meteor = Meteor(x, y, speed, img)
 
             # Adiciona aos grupos
@@ -852,7 +877,8 @@ class SpaceEscape:
                     x = random.randint(0, self.config.WIDTH - Sizes.METEOR[0])
                     y = random.randint(-100, -40)
                     speed = random.randint(diff_config.speed_min, diff_config.speed_max)
-                    img = random.choice(self.meteor_imgs)
+                    enemy_imgs = self._get_enemy_images_for_phase()
+                    img = random.choice(enemy_imgs)
                     new_meteor = Meteor(x, y, speed, img)
                     self.all_sprites.add(new_meteor)
                     self.meteor_group.add(new_meteor)
