@@ -87,7 +87,7 @@ ASSETS = {
 class Sizes:
     PLAYER_IDLE = (80, 60)
     PLAYER_UP = (200, 140)
-    ENEMY = (40, 40)
+    ENEMY = (80, 60)
     ITEM = (32, 32)
     PLAYER_SPEED = 6
     BULLET = (6, 12)
