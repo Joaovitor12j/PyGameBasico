@@ -80,7 +80,7 @@ ASSETS = {
     "enemy_level1": "Assets/Enemies/enemy_level1.png",
     "enemy_level2": "Assets/Enemies/enemy_level2.png",
     "enemy_level3": "Assets/Enemies/enemy_level3.png",
-    "enemy_level32": "Assets/Enemies/enemy_level32.png",
+    "enemy_level3_2": "Assets/Enemies/enemy_level3_2.png",
 }
 
 # Dimensões padrão
@@ -462,8 +462,8 @@ class SpaceEscape:
         self.enemy_level3_img = self.resources.load_image(
             "enemy_level3", ASSETS["enemy_level3"], Sizes.ENEMY, Colors.RED
         )
-        self.enemy_level32_img = self.resources.load_image(
-            "enemy_level32", ASSETS["enemy_level32"], Sizes.ENEMY, Colors.YELLOW
+        self.enemy_level3_2_img = self.resources.load_image(
+            "enemy_level3_2", ASSETS["enemy_level3_2"], Sizes.ENEMY, Colors.YELLOW
         )
 
         # Item coletável
@@ -504,6 +504,51 @@ class SpaceEscape:
         except Exception as e:
             print(f"Aviso: falha ao aplicar volumes: {e}")
 
+        self.enemy_3_2_explosion_frames: List[pygame.Surface] = []
+        try:
+            dir_path = self.resources._resolve_path("Assets/Enemies/enemy_3_2_explosion")
+            if os.path.isdir(dir_path):
+                for fname in sorted(os.listdir(dir_path)):
+                    if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                        fpath = os.path.join(dir_path, fname)
+                        try:
+                            img = pygame.image.load(fpath).convert_alpha()
+                            self.enemy_3_2_explosion_frames.append(img)
+                        except Exception as e:
+                            print(f"Aviso: falha ao carregar frame enemy_level3_2 '{fname}': {e}")
+        except Exception as e:
+            print(f"Aviso: falha ao listar frames enemy_3_2_Explosion: {e}")
+
+        self.enemy_1_explosion_frames: List[pygame.Surface] = []
+        try:
+            dir_path = self.resources._resolve_path("Assets/Enemies/enemy_1_explosion")
+            if os.path.isdir(dir_path):
+                for fname in sorted(os.listdir(dir_path)):
+                    if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                        fpath = os.path.join(dir_path, fname)
+                        try:
+                            img = pygame.image.load(fpath).convert_alpha()
+                            self.enemy_1_explosion_frames.append(img)
+                        except Exception as e:
+                            print(f"Aviso: falha ao carregar frame enemy_1 '{fname}': {e}")
+        except Exception as e:
+            print(f"Aviso: falha ao listar frames enemy_1_Explosion: {e}")
+
+        self.enemy_2_explosion_frames: List[pygame.Surface] = []
+        try:
+            dir_path = self.resources._resolve_path("Assets/Enemies/enemy_2_explosion")
+            if os.path.isdir(dir_path):
+                for fname in sorted(os.listdir(dir_path)):
+                    if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                        fpath = os.path.join(dir_path, fname)
+                        try:
+                            img = pygame.image.load(fpath).convert_alpha()
+                            self.enemy_2_explosion_frames.append(img)
+                        except Exception as e:
+                            print(f"Aviso: falha ao carregar frame enemy_2 '{fname}': {e}")
+        except Exception as e:
+            print(f"Aviso: falha ao listar frames enemy_2_Explosion: {e}")
+
     def _apply_volumes(self):
         # Sons (SFX)
         point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
@@ -543,14 +588,14 @@ class SpaceEscape:
         """Retorna a lista de sprites de inimigos conforme a fase atual.
         Fase 1 (phase==0): enemy_level1
         Fase 2 (phase==1): enemy_level2
-        Fase 3+ (phase>=2): inimigos aleatórios entre enemy_level3 e enemy_level32
+        Fase 3+ (phase>=2): inimigos aleatórios entre enemy_level3 e enemy_level3_2
         """
         if self.phase == 0:
             return [self.enemy_level1_img]
         elif self.phase == 1:
             return [self.enemy_level2_img]
         else:
-            return [self.enemy_level3_img, self.enemy_level32_img]
+            return [self.enemy_level3_img, self.enemy_level3_2_img]
 
     def _create_enemies(self, config: DifficultyConfig):
         """Cria naves inimigas e os ADICIONA AOS GRUPOS"""
@@ -864,8 +909,20 @@ class SpaceEscape:
         if hits:
             for enemy_list in hits.values():
                 for enemy in enemy_list:
-                    if hasattr(self, "explosion_frames") and self.explosion_frames:
-                        exp = Explosion(enemy.rect.center, self.explosion_frames, frame_time_ms=40, scale=(80, 80))
+                    frames_to_use = None
+                    try:
+                        if enemy.image == self.enemy_level3_2_img and hasattr(self, "enemy_3_2_explosion_frames") and self.enemy_3_2_explosion_frames:
+                            frames_to_use = self.enemy_3_2_explosion_frames
+                        elif enemy.image == self.enemy_level1_img and hasattr(self, "enemy_1_explosion_frames") and self.enemy_1_explosion_frames:
+                            frames_to_use = self.enemy_1_explosion_frames
+                        elif enemy.image == self.enemy_level2_img and hasattr(self, "enemy_2_explosion_frames") and self.enemy_2_explosion_frames:
+                            frames_to_use = self.enemy_2_explosion_frames
+                    except Exception:
+                        frames_to_use = None
+                    if not frames_to_use and hasattr(self, "explosion_frames") and self.explosion_frames:
+                        frames_to_use = self.explosion_frames
+                    if frames_to_use:
+                        exp = Explosion(enemy.rect.center, frames_to_use, frame_time_ms=40, scale=(80, 80))
                         self.explosion_group.add(exp)
                     # Pontuação por destruir com tiro
                     self.score += 1
@@ -1059,7 +1116,7 @@ class SpaceEscape:
             self.screen.blit(self.bg_menu, (0, 0))
 
             # Título
-            title = self.font_medium.render("🚀 SPACE ESCAPE 🚀", True, Colors.YELLOW)
+            title = self.font_medium.render("🚀 SPACE ATAQUE 🚀", True, Colors.YELLOW)
             self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
 
             # Highscore
