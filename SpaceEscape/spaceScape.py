@@ -2,12 +2,12 @@ import pygame
 import random
 import os
 import json
+import math
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
-# Referência global do jogo atual para utilidades de spawn (acessada por Enemy)
-CURRENT_GAME = None  # será atribuída em SpaceEscape.__init__
+CURRENT_GAME = None
 
 # =============================================================================
 # CONSTANTES
@@ -275,6 +275,51 @@ class Explosion(pygame.sprite.Sprite):
             self.image = self.frames[self.current]
             self.rect = self.image.get_rect(center=center)
 
+class ShieldAura(pygame.sprite.Sprite):
+    """Efeito visual de partículas orbitando a nave enquanto o escudo está ativo."""
+    def __init__(self, player: pygame.sprite.Sprite, radius: Optional[int] = None, particles: int = 12,
+                 color_main: tuple = Colors.BLUE, color_glow: tuple = (120, 180, 255)):
+        super().__init__()
+        self.player = player
+        pr = player.rect
+        base = max(pr.width, pr.height)
+        self.radius = int((radius if radius is not None else base * 0.65))
+        size = self.radius * 2 + 10
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        self.rect = self.image.get_rect(center=player.rect.center)
+        self.particles = max(6, particles)
+        self.angles = [i * (360.0 / self.particles) for i in range(self.particles)]
+        self.angular_speed = 120.0  # graus por segundo
+        self.last_update_ms = pygame.time.get_ticks()
+        self.color_main = color_main
+        self.color_glow = color_glow
+        self.particle_radius = max(2, base // 20)
+        self.glow_radius = self.particle_radius + 2
+        self._redraw()
+
+    def _redraw(self):
+        self.image.fill((0, 0, 0, 0))
+        cx = self.image.get_width() // 2
+        cy = self.image.get_height() // 2
+        for ang in self.angles:
+            rad = ang * 3.14159265 / 180.0
+            px = int(cx + self.radius * math.cos(rad))
+            py = int(cy + self.radius * math.sin(rad))
+            pygame.draw.circle(self.image, (*self.color_glow, 90), (px, py), self.glow_radius)
+            pygame.draw.circle(self.image, self.color_main, (px, py), self.particle_radius)
+
+    def update(self):
+        if not hasattr(self.player, 'rect'):
+            self.kill()
+            return
+        self.rect.center = self.player.rect.center
+        now = pygame.time.get_ticks()
+        dt = max(0, now - self.last_update_ms) / 1000.0
+        self.last_update_ms = now
+        delta_deg = self.angular_speed * dt
+        self.angles = [(a + delta_deg) % 360.0 for a in self.angles]
+        self._redraw()
+
 class Player(pygame.sprite.Sprite):
     """Representa o jogador como um Sprite"""
 
@@ -441,6 +486,7 @@ class SpaceEscape:
         self.explosion_group = pygame.sprite.Group()   # Grupo para animações de explosão
         self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
         self.boss_group = pygame.sprite.GroupSingle()   # Grupo para o chefe
+        self.shield_aura_group = pygame.sprite.GroupSingle()  # Efeito visual do escudo
 
         # Estado do jogo
         self.state = GameState.MENU
@@ -676,6 +722,8 @@ class SpaceEscape:
         self.explosion_group.empty()
         self.boss_group.empty()
         self.all_sprites.empty()
+        if hasattr(self, 'shield_aura_group'):
+            self.shield_aura_group.empty()
         if self.player:
             self.all_sprites.add(self.player)
 
@@ -714,6 +762,8 @@ class SpaceEscape:
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
+        if hasattr(self, 'shield_aura_group'):
+            self.shield_aura_group.empty()
 
         # Cria novas naves inimigas
         self._create_enemies(diff_config.scale_for_phase(0))
@@ -764,6 +814,8 @@ class SpaceEscape:
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
+        if hasattr(self, 'shield_aura_group'):
+            self.shield_aura_group.empty()
 
         diff_config = DIFFICULTIES[self.difficulty]
         self._create_enemies(diff_config.scale_for_phase(self.phase))
@@ -1049,7 +1101,28 @@ class SpaceEscape:
 
         # --- 2. Verificação de Colisões ---
 
-        # (False = Inimigo não é destruído na colisão, nós o reposicionamos)
+        aura_active = hasattr(self, 'shield_aura_group') and getattr(self, 'shield_aura_group', None) is not None and len(self.shield_aura_group) > 0
+        now_ms = pygame.time.get_ticks()
+        inv_active = now_ms < self.invulnerable_until_ms
+        if inv_active and not aura_active and self.player is not None:
+            try:
+                self.shield_aura_group = getattr(self, 'shield_aura_group', pygame.sprite.GroupSingle())
+                if len(self.shield_aura_group) > 0:
+                    for s in self.shield_aura_group.sprites():
+                        s.kill()
+                aura = ShieldAura(self.player)
+                self.shield_aura_group.add(aura)
+            except Exception:
+                pass
+        elif not inv_active and aura_active:
+            try:
+                for s in self.shield_aura_group.sprites():
+                    s.kill()
+            except Exception:
+                pass
+        if hasattr(self, 'shield_aura_group') and self.shield_aura_group:
+            self.shield_aura_group.update()
+
         hits = pygame.sprite.spritecollide(self.player, self.enemy_group, False)
         if hits:
             now = pygame.time.get_ticks()
@@ -1175,6 +1248,8 @@ class SpaceEscape:
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
 
         self.all_sprites.draw(self.screen)
+        if hasattr(self, 'shield_aura_group') and self.shield_aura_group:
+            self.shield_aura_group.draw(self.screen)
         self.explosion_group.draw(self.screen)
         self._draw_boss_health_bar()
 
