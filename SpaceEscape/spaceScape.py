@@ -81,6 +81,9 @@ ASSETS = {
     "enemy_level2": "Assets/Enemies/enemy_level2.png",
     "enemy_level3": "Assets/Enemies/enemy_level3.png",
     "enemy_level3_2": "Assets/Enemies/enemy_level3_2.png",
+    "boss_sleep": "Assets/Boss/golem_boss_sleep.png",
+    "boss_normal": "Assets/Boss/golem_boss.png",
+    "boss_rage": "Assets/Boss/golem_boss_rage.png",
 }
 
 # Dimensões padrão
@@ -93,6 +96,7 @@ class Sizes:
     BULLET = (6, 12)
     BULLET_SPEED = -12  # velocidade vertical (negativa = para cima)
     FIRE_COOLDOWN_MS = 200  # intervalo mínimo entre disparos contínuos
+    BOSS = (220, 160)
 
 # =============================================================================
 # GERENCIADOR DE RECURSOS
@@ -187,10 +191,21 @@ class Item(pygame.sprite.Sprite):
         self.screen_height = pygame.display.get_surface().get_height()
 
     def update(self):
-        """Move para baixo. Se auto-destrói se sair da tela."""
+        """Move o item para baixo; remove quando sai da tela."""
         self.rect.y += self.speed
         if self.rect.top > self.screen_height:
             self.kill()
+
+class Boss(pygame.sprite.Sprite):
+    """Chefe final que aparece na fase 3+ quando objetivos estão cumpridos."""
+    def __init__(self, image: pygame.Surface, screen_width: int):
+        super().__init__()
+        self.image = image
+        self.rect = self.image.get_rect()
+        self.rect.midtop = (screen_width // 2, 10)
+
+    def update(self):
+        return
 
 class Bullet(pygame.sprite.Sprite):
     """Projétil disparado pelo jogador (sobe e destrói naves inimigas)."""
@@ -402,6 +417,7 @@ class SpaceEscape:
         self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
         self.explosion_group = pygame.sprite.Group()   # Grupo para animações de explosão
         self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
+        self.boss_group = pygame.sprite.GroupSingle()   # Grupo para o chefe
 
         # Estado do jogo
         self.state = GameState.MENU
@@ -414,6 +430,10 @@ class SpaceEscape:
         # Progresso por fase
         self.items_collected = 0
         self.boss_defeated = False
+        # Boss state
+        self.boss = None
+        self.boss_hp: float = 0.0
+        self.boss_spawned: bool = False
         # Itens coletáveis e agendamento de spawn
         self.next_item_spawn_score: Optional[int] = None
         self.next_shield_spawn_score: Optional[int] = None
@@ -473,6 +493,17 @@ class SpaceEscape:
         # Shield coletável
         self.shield_img = self.resources.load_image(
             "shield", ASSETS["shield"], Sizes.ITEM, Colors.BLUE
+        )
+
+        # Boss images
+        self.boss_img_sleep = self.resources.load_image(
+            "boss_sleep", ASSETS["boss_sleep"], Sizes.BOSS, Colors.RED
+        )
+        self.boss_img_normal = self.resources.load_image(
+            "boss_normal", ASSETS["boss_normal"], Sizes.BOSS, Colors.RED
+        )
+        self.boss_img_rage = self.resources.load_image(
+            "boss_rage", ASSETS["boss_rage"], Sizes.BOSS, Colors.RED
         )
 
         # Sons
@@ -619,6 +650,7 @@ class SpaceEscape:
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
+        self.boss_group.empty()
         self.all_sprites.empty()
         if self.player:
             self.all_sprites.add(self.player)
@@ -631,6 +663,9 @@ class SpaceEscape:
         self.phase = 0
         self.items_collected = 0
         self.boss_defeated = False
+        self.boss_spawned = False
+        self.boss_hp = 0.0
+        self.boss_group.empty()
         self.next_item_spawn_score = None
         self.next_shield_spawn_score = None
         self.invulnerable_until_ms = 0
@@ -675,6 +710,10 @@ class SpaceEscape:
         self.phase = data.get("phase", 0)
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
+
+        self.boss_spawned = False
+        self.boss_hp = 0.0
+        self.boss_group.empty()
 
         self.next_item_spawn_score = None
         self.next_shield_spawn_score = None
@@ -819,6 +858,8 @@ class SpaceEscape:
         self.phase += 1
         self.items_collected = 0
         self.boss_defeated = False
+        self.boss_spawned = False
+        self.boss_hp = 0.0
 
         # Limpa todos os sprites (exceto o jogador)
         self.enemy_group.empty()
@@ -826,6 +867,7 @@ class SpaceEscape:
         self.shield_group.empty()
         self.bullet_group.empty()
         self.explosion_group.empty()
+        self.boss_group.empty()
 
         self.all_sprites.empty()
         self.all_sprites.add(self.player)
@@ -868,6 +910,59 @@ class SpaceEscape:
             except Exception as e:
                 print(f"Aviso: falha ao tocar som de tiro: {e}")
 
+    def _spawn_boss_if_ready(self):
+        """Spawna o boss na fase 3+ quando objetivos base (pontos/itens) estiverem completos."""
+        if self.boss_spawned or self.boss_defeated:
+            return
+        if not self._is_boss_required():
+            return
+        # Checa se pontuação e itens atingiram as metas da fase
+        if self.score < self._get_phase_target():
+            return
+        if self.items_collected < self._get_phase_required_items():
+            return
+        # Cria boss com sprite inicial 'sleep'
+        boss_sprite = Boss(self.boss_img_sleep, self.config.WIDTH)
+        self.boss_group.add(boss_sprite)
+        self.all_sprites.add(boss_sprite)
+        self.boss = boss_sprite
+        self.boss_hp = 100.0
+        self.boss_spawned = True
+
+    def _update_boss_sprite_by_hp(self):
+        """Atualiza o sprite do boss conforme a vida.
+        - Inicial: sleep
+        - ← 90%: normal (golem_boss)
+        - ← 50%: volta ao sleep (golem_boss_sleep)
+        """
+        if not self.boss_spawned or not self.boss:
+            return
+        if self.boss_hp <= 50.0:
+            img = self.boss_img_sleep
+        elif self.boss_hp <= 90.0:
+            img = self.boss_img_normal
+        else:
+            img = self.boss_img_sleep
+        prev_midtop = self.boss.rect.midtop
+        self.boss.image = img
+        self.boss.rect = self.boss.image.get_rect()
+        self.boss.rect.midtop = prev_midtop
+
+    def _draw_boss_health_bar(self):
+        if not self.boss_spawned or not self.boss or self.boss_defeated:
+            return
+        bar_width = self.boss.rect.width
+        bar_height = 10
+        x = self.boss.rect.left
+        y = self.boss.rect.top - bar_height - 6
+        pygame.draw.rect(self.screen, (50,50,50), (x, y, bar_width, bar_height))
+        pct = max(0.0, min(100.0, self.boss_hp))
+        fill_w = int(bar_width * (pct / 100.0))
+        color = (0, 200, 0) if pct > 50 else (220, 180, 0) if pct > 20 else (200, 50, 50)
+        pygame.draw.rect(self.screen, color, (x, y, fill_w, bar_height))
+        txt = self.font_tiny.render(f"{pct:.0f}%", True, Colors.WHITE)
+        self.screen.blit(txt, (x + bar_width//2 - txt.get_width()//2, y - 2 - txt.get_height()))
+
     def update_gameplay(self):
         """Atualiza lógica do gameplay usando grupos de sprites"""
         keys = pygame.key.get_pressed()
@@ -882,6 +977,9 @@ class SpaceEscape:
         self.shield_group.update()
         self.bullet_group.update()
         self.explosion_group.update()
+        self.boss_group.update()
+
+        self._spawn_boss_if_ready()
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
@@ -939,6 +1037,27 @@ class SpaceEscape:
                     self.all_sprites.add(new_enemy)
                     self.enemy_group.add(new_enemy)
 
+        # Colisão Projétil vs Boss (não destrói o boss até HP chegar a 0)
+        if self.boss_spawned and not self.boss_defeated:
+            boss_hits = pygame.sprite.groupcollide(self.bullet_group, self.boss_group, True, False)
+            if boss_hits:
+                # Cada tiro causa 0.3% de dano
+                for _ in boss_hits.keys():
+                    self.boss_hp = max(0.0, self.boss_hp - 0.3)
+                # Atualiza sprite conforme thresholds
+                self._update_boss_sprite_by_hp()
+                # Derrota do boss
+                if self.boss_hp <= 0.0 and self.boss:
+                    self.boss_defeated = True
+                    self.boss_spawned = False
+                    try:
+                        self.boss.kill()
+                    except Exception:
+                        pass
+                    self.boss = None
+                    # Pequena recompensa opcional por derrotar boss
+                    self.score += 5
+
         # Colisão Jogador vs Itens
         # (True = destrói o item ao coletar)
         item_hits = pygame.sprite.spritecollide(self.player, self.item_group, True)
@@ -988,8 +1107,8 @@ class SpaceEscape:
 
         # --- Desenha TODOS os sprites de uma vez ---
         self.all_sprites.draw(self.screen)
-        # Explosões também são desenhadas (caso não estejam em all_sprites)
         self.explosion_group.draw(self.screen)
+        self._draw_boss_health_bar()
 
         # HUD linha 1
         hud_text = self.font_tiny.render(
