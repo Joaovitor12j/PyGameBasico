@@ -6,6 +6,9 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
+# Referência global do jogo atual para utilidades de spawn (acessada por Enemy)
+CURRENT_GAME = None  # será atribuída em SpaceEscape.__init__
+
 # =============================================================================
 # CONSTANTES
 # =============================================================================
@@ -177,9 +180,26 @@ class Enemy(pygame.sprite.Sprite):
             self.randomize_position()
 
     def randomize_position(self):
-        """Reposiciona no topo com posição X aleatória"""
         self.rect.y = random.randint(-100, -40)
-        self.rect.x = random.randint(0, self.screen_width - self.rect.width)
+        x_min = 0
+        x_max = self.screen_width - self.rect.width
+        game_current = globals().get('CURRENT_GAME', None)
+        if game_current and getattr(game_current, 'boss_spawned', False) and getattr(game_current, 'boss', None) and not getattr(game_current, 'boss_defeated', False):
+            forbid = game_current.get_boss_forbidden_x_range(self.rect.width)
+            if forbid is not None:
+                lx, rx = forbid
+                left_end = max(x_min, lx - self.rect.width)
+                right_start = min(x_max, rx + 1)
+                intervals = []
+                if left_end > x_min:
+                    intervals.append((x_min, left_end))
+                if right_start < x_max:
+                    intervals.append((right_start, x_max))
+                if intervals:
+                    seg = random.choice(intervals)
+                    self.rect.x = random.randint(seg[0], max(seg[0], seg[1]))
+                    return
+        self.rect.x = random.randint(x_min, x_max)
 
 class Item(pygame.sprite.Sprite):
     """Representa um item coletável como um Sprite"""
@@ -385,6 +405,9 @@ class SpaceEscape:
         self.screen = pygame.display.set_mode((self.config.WIDTH, self.config.HEIGHT))
         pygame.display.set_caption(self.config.TITLE)
         self.clock = pygame.time.Clock()
+
+        global CURRENT_GAME
+        CURRENT_GAME = self
 
         # Gerenciadores
         asset_dir = os.path.dirname(os.path.abspath(__file__))
@@ -631,7 +654,8 @@ class SpaceEscape:
     def _create_enemies(self, config: DifficultyConfig):
         """Cria naves inimigas e os ADICIONA AOS GRUPOS"""
         for _ in range(config.enemies):
-            x = random.randint(0, self.config.WIDTH - Sizes.ENEMY[0])
+            # Evita coluna do boss (caso já esteja ativo ao carregar jogo numa fase alta)
+            x = self._rand_x_avoiding_boss_column(Sizes.ENEMY[0])
             y = random.randint(-500, -40)
             speed = random.randint(config.speed_min, config.speed_max)
             enemy_imgs = self._get_enemy_images_for_phase()
@@ -928,6 +952,46 @@ class SpaceEscape:
         self.boss = boss_sprite
         self.boss_hp = 100.0
         self.boss_spawned = True
+        self.boss_next_move_threshold = 90.0
+
+    def get_boss_forbidden_x_range(self, sprite_w: int):
+        if not self.boss_spawned or self.boss_defeated or not self.boss:
+            return None
+        boss_left = self.boss.rect.left
+        boss_right = self.boss.rect.right
+        pad = max(0, sprite_w // 2)
+        left = max(0, boss_left - pad)
+        right = min(self.config.WIDTH - 1, boss_right + pad)
+        if left >= right:
+            return None
+        return (left, right)
+
+    def _rand_x_avoiding_boss_column(self, sprite_w: int) -> int:
+        forbid = self.get_boss_forbidden_x_range(sprite_w)
+        x_min = 0
+        x_max = self.config.WIDTH - sprite_w
+        if not forbid:
+            return random.randint(x_min, x_max)
+        lx, rx = forbid
+        left_end = max(x_min, lx - sprite_w)
+        right_start = min(x_max, rx + 1)
+        intervals = []
+        if left_end > x_min:
+            intervals.append((x_min, left_end))
+        if right_start < x_max:
+            intervals.append((right_start, x_max))
+        if not intervals:
+            return random.randint(x_min, x_max)
+        seg = random.choice(intervals)
+        return random.randint(seg[0], max(seg[0], seg[1]))
+
+    def _move_boss_random_top(self):
+        if not self.boss or not self.boss_spawned:
+            return
+        y = random.randint(10, max(10, self.config.HEIGHT // 4))
+        half_w = self.boss.rect.width // 2
+        cx = random.randint(half_w, self.config.WIDTH - half_w)
+        self.boss.rect.midtop = (cx, y)
 
     def _update_boss_sprite_by_hp(self):
         """Atualiza o sprite do boss conforme a vida.
@@ -938,7 +1002,7 @@ class SpaceEscape:
         if not self.boss_spawned or not self.boss:
             return
         if self.boss_hp <= 50.0:
-            img = self.boss_img_sleep
+            img = self.boss_img_rage
         elif self.boss_hp <= 90.0:
             img = self.boss_img_normal
         else:
@@ -1027,8 +1091,7 @@ class SpaceEscape:
                     if self.sound_point:
                         self.sound_point.play()
 
-                    # Cria um nova nave inimiga para substituir o destruída
-                    x = random.randint(0, self.config.WIDTH - Sizes.ENEMY[0])
+                    x = self._rand_x_avoiding_boss_column(Sizes.ENEMY[0])
                     y = random.randint(-100, -40)
                     speed = random.randint(diff_config.speed_min, diff_config.speed_max)
                     enemy_imgs = self._get_enemy_images_for_phase()
@@ -1041,10 +1104,16 @@ class SpaceEscape:
         if self.boss_spawned and not self.boss_defeated:
             boss_hits = pygame.sprite.groupcollide(self.bullet_group, self.boss_group, True, False)
             if boss_hits:
-                # Cada tiro causa 0.3% de dano
-                for _ in boss_hits.keys():
-                    self.boss_hp = max(0.0, self.boss_hp - 0.3)
-                # Atualiza sprite conforme thresholds
+                total_hits = len(boss_hits.keys())
+                if total_hits > 0:
+                    self.boss_hp = max(0.0, self.boss_hp - 0.3 * total_hits)
+                if hasattr(self, 'boss_next_move_threshold') and self.boss_spawned and not self.boss_defeated:
+                    while self.boss_hp <= getattr(self, 'boss_next_move_threshold', -10.0):
+                        self._move_boss_random_top()
+                        self.boss_next_move_threshold -= 10.0
+                        if self.boss_next_move_threshold < 0.0:
+                            break
+
                 self._update_boss_sprite_by_hp()
                 # Derrota do boss
                 if self.boss_hp <= 0.0 and self.boss:
@@ -1105,7 +1174,6 @@ class SpaceEscape:
         """Desenha o gameplay"""
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
 
-        # --- Desenha TODOS os sprites de uma vez ---
         self.all_sprites.draw(self.screen)
         self.explosion_group.draw(self.screen)
         self._draw_boss_health_bar()
