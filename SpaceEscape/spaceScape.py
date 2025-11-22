@@ -29,7 +29,7 @@ class GameConfig:
     TITLE: str = "🚀 Space Escape"
     SAVE_FILE: str = "savegame.json"
     PHASE_TARGET_BASE: int = 100
-    PHASE_VICTORY_DURATION: int = 5000  # ms
+    PHASE_VICTORY_DURATION: int = 2000  # ms
 
 @dataclass
 class DifficultyConfig:
@@ -87,6 +87,15 @@ ASSETS = {
     "boss_sleep": "Assets/Boss/golem_boss_sleep.png",
     "boss_normal": "Assets/Boss/golem_boss.png",
     "boss_rage": "Assets/Boss/golem_boss_rage.png",
+    # Novos sons
+    "low_lifes": "Assets/Sounds/low_lifes.mp3",
+    "boss_final": "Assets/Sounds/boss_final.mp3",
+    "collect_star": "Assets/Sounds/collect_star.mp3",
+    "gameover": "Assets/Sounds/gameover.mp3",
+    "load_levels": "Assets/Sounds/load_levels.mp3",
+    "boss_explosion": "Assets/Sounds/boss_explosion.mp3",
+    "pause_game": "Assets/Sounds/pause_game.mp3",
+    "space_bridge": "Assets/Sounds/space_bridge.mp3",
 }
 
 # Dimensões padrão
@@ -387,11 +396,17 @@ class SaveManager:
                 "score": score,
                 "lives": lives,
                 "phase": phase,
-                "player": {"x": player_pos[0], "y": player_pos[1]},
+                "player": {"x": player_pos[0], "y": player_pos[1]} if player_pos is not None else None,
                 "items_collected": items_collected,
                 "boss_defeated": boss_defeated,
-                "highscore": highscore
+                "highscore": highscore,
             }
+            try:
+                if 'CURRENT_GAME' in globals() and CURRENT_GAME is not None:
+                    data["volumes"] = dict(CURRENT_GAME.volumes)
+                    data["sound_enabled"] = dict(CURRENT_GAME.sound_enabled)
+            except Exception as e:
+                print(f"Aviso: falha ao salvar configurações de som: {e}")
             with open(self.save_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             return highscore
@@ -476,6 +491,26 @@ class SpaceEscape:
             "music": True,
         }
 
+        # Tenta carregar configurações de som do save antes de carregar recursos
+        try:
+            saved = self.save_manager.load()
+            if saved:
+                # volumes
+                if isinstance(saved.get("volumes"), dict):
+                    for k, v in saved["volumes"].items():
+                        if k in self.volumes:
+                            try:
+                                self.volumes[k] = _normalize_volume_value(v)
+                            except Exception:
+                                pass
+                # enabled flags
+                if isinstance(saved.get("sound_enabled"), dict):
+                    for k, v in saved["sound_enabled"].items():
+                        if k in self.sound_enabled and isinstance(v, bool):
+                            self.sound_enabled[k] = v
+        except Exception as e:
+            print(f"Aviso: falha ao carregar configurações de som do save: {e}")
+
         # Carrega recursos
         self._load_resources()
 
@@ -492,6 +527,19 @@ class SpaceEscape:
 
         # Estado do jogo
         self.state = GameState.MENU
+        
+        # Flags/estado para sons dinâmicos
+        self._low_lifes_playing = False
+        self._phase_wait_snd_playing = False
+        self._pause_snd_playing = False
+        self._space_bridge_playing = False
+        self._boss_final_end_ms = None
+        # Canais para sons em loop/temporizados
+        self._chan_low_lifes = None
+        self._chan_phase_wait = None
+        self._chan_pause = None
+        self._chan_space_bridge = None
+        self._chan_boss_final = None
         self.difficulty = "Normal"
         self.score = 0
         self.lives = 0
@@ -585,6 +633,16 @@ class SpaceEscape:
         self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"]) 
         self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"]) 
         self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"]) 
+        # Novos sons
+        self.sound_low_lifes = self.resources.load_sound("low_lifes", ASSETS["low_lifes"]) 
+        self.sound_boss_final = self.resources.load_sound("boss_final", ASSETS["boss_final"]) 
+        self.sound_collect_star = self.resources.load_sound("collect_star", ASSETS["collect_star"]) 
+        self.sound_gameover = self.resources.load_sound("gameover", ASSETS["gameover"]) 
+        self.sound_load_levels = self.resources.load_sound("load_levels", ASSETS["load_levels"]) 
+        self.sound_boss_explosion = self.resources.load_sound("boss_explosion", ASSETS["boss_explosion"]) 
+        self.sound_pause_game = self.resources.load_sound("pause_game", ASSETS["pause_game"]) 
+        self.sound_space_bridge = self.resources.load_sound("space_bridge", ASSETS["space_bridge"]) 
+        
         self.resources.load_music(ASSETS["music"]) 
 
         self.explosion_frames: List[pygame.Surface] = []
@@ -661,6 +719,8 @@ class SpaceEscape:
         hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
         shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
         music_vol = self.volumes.get("music", 0.0) if self.sound_enabled.get("music", True) else 0.0
+        # Volume base para SFX adicionais (reutiliza 'point')
+        sfx_vol = point_vol
 
         if hasattr(self, "sound_point") and self.sound_point:
             try:
@@ -677,10 +737,74 @@ class SpaceEscape:
                 self.sound_shoot.set_volume(shoot_vol)
             except Exception:
                 pass
+        # Novos sons
+        for attr in [
+            "sound_low_lifes", "sound_boss_final", "sound_collect_star", "sound_gameover",
+            "sound_load_levels", "sound_boss_explosion", "sound_pause_game", "sound_space_bridge",
+        ]:
+            try:
+                snd = getattr(self, attr, None)
+                if snd:
+                    snd.set_volume(sfx_vol)
+            except Exception:
+                pass
         try:
+            # Ajusta volume e estado de pausa da música conforme flag
             pygame.mixer.music.set_volume(music_vol)
+            if not self.sound_enabled.get("music", True):
+                try:
+                    pygame.mixer.music.pause()
+                except Exception:
+                    pass
+            else:
+                try:
+                    pygame.mixer.music.unpause()
+                except Exception:
+                    pass
         except Exception:
             pass
+
+    # Helpers de áudio
+    def _start_loop(self, sound_attr: str, flag_attr: str, chan_attr: str):
+        try:
+            if not getattr(self, flag_attr, False):
+                snd = getattr(self, sound_attr, None)
+                if snd and self.sound_enabled.get("point", True):
+                    ch = snd.play(-1)
+                    setattr(self, flag_attr, True)
+                    setattr(self, chan_attr, ch)
+        except Exception:
+            pass
+
+    def _stop_loop(self, flag_attr: str, chan_attr: str):
+        try:
+            if getattr(self, flag_attr, False):
+                ch = getattr(self, chan_attr, None)
+                if ch:
+                    try:
+                        ch.stop()
+                    except Exception:
+                        pass
+                setattr(self, flag_attr, False)
+                setattr(self, chan_attr, None)
+        except Exception:
+            pass
+
+    def _update_dynamic_sounds(self):
+        # Low lives loop while playing and 3 or fewer lives
+        if self.state == GameState.PLAYING and self.lives <= 3:
+            self._start_loop("sound_low_lifes", "_low_lifes_playing", "_chan_low_lifes")
+        else:
+            self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
+        # Boss final timeout handling
+        if self._boss_final_end_ms is not None and pygame.time.get_ticks() >= self._boss_final_end_ms:
+            try:
+                if self._chan_boss_final:
+                    self._chan_boss_final.stop()
+            except Exception:
+                pass
+            self._boss_final_end_ms = None
+            self._chan_boss_final = None
 
     def set_volume(self, name: str, value):
         allowed = {"point", "hit", "shoot", "music"}
@@ -844,6 +968,23 @@ class SpaceEscape:
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
 
+        # Aplicar configurações de som salvas (se houver)
+        try:
+            if isinstance(data.get("volumes"), dict):
+                for k, v in data["volumes"].items():
+                    if k in self.volumes:
+                        try:
+                            self.volumes[k] = _normalize_volume_value(v)
+                        except Exception:
+                            pass
+            if isinstance(data.get("sound_enabled"), dict):
+                for k, v in data["sound_enabled"].items():
+                    if k in self.sound_enabled and isinstance(v, bool):
+                        self.sound_enabled[k] = v
+            self._apply_volumes()
+        except Exception as e:
+            print(f"Aviso: falha ao aplicar configurações de som do save: {e}")
+
         self.boss_spawned = False
         self.boss_hp = 0.0
         self.boss_group.empty()
@@ -990,6 +1131,11 @@ class SpaceEscape:
 
     def _advance_phase(self):
         """Avança para a próxima fase"""
+        # Parar som de espera de fase, se ativo
+        try:
+            self._stop_loop("_phase_wait_snd_playing", "_chan_phase_wait")
+        except Exception:
+            pass
         self.phase += 1
         self.items_collected = 0
         self.boss_defeated = False
@@ -1074,6 +1220,13 @@ class SpaceEscape:
         self.boss_hp = 100.0
         self.boss_spawned = True
         self.boss_next_move_threshold = 90.0
+        # Som de boss_final por 5 segundos
+        try:
+            if hasattr(self, 'sound_boss_final') and self.sound_boss_final and self.sound_enabled.get('point', True):
+                self._chan_boss_final = self.sound_boss_final.play()
+                self._boss_final_end_ms = pygame.time.get_ticks() + 5000
+        except Exception:
+            pass
 
     def get_boss_forbidden_x_range(self, sprite_w: int):
         if not self.boss_spawned or self.boss_defeated or not self.boss:
@@ -1196,6 +1349,11 @@ class SpaceEscape:
         self.boss_group.update()
 
         self._spawn_boss_if_ready()
+        # Atualização dos sons dinâmicos (vidas baixas, timers)
+        try:
+            self._update_dynamic_sounds()
+        except Exception:
+            pass
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
 
@@ -1294,6 +1452,18 @@ class SpaceEscape:
                 if self.boss_hp <= 0.0 and self.boss:
                     self.boss_defeated = True
                     self.boss_spawned = False
+                    # Som de explosão do boss
+                    try:
+                        if hasattr(self, 'sound_boss_explosion') and self.sound_boss_explosion and self.sound_enabled.get('point', True):
+                            self.sound_boss_explosion.play()
+                    except Exception:
+                        pass
+                    # Parar som boss_final se ainda estiver tocando
+                    try:
+                        if self._chan_boss_final:
+                            self._chan_boss_final.stop()
+                    except Exception:
+                        pass
                     try:
                         self.boss.kill()
                     except Exception:
@@ -1305,8 +1475,14 @@ class SpaceEscape:
             item_hits_local = pygame.sprite.spritecollide(plyr, self.item_group, True)
             if item_hits_local:
                 self.items_collected += len(item_hits_local)
-                if self.sound_point:
-                    self.sound_point.play()
+                try:
+                    snd = getattr(self, 'sound_collect_star', None)
+                    if snd and self.sound_enabled.get('point', True):
+                        snd.play()
+                    elif self.sound_point:
+                        self.sound_point.play()
+                except Exception:
+                    pass
         process_item_pickups(self.player)
         if self.multiplayer and getattr(self, 'player2', None):
             process_item_pickups(self.player2)
@@ -1374,6 +1550,11 @@ class SpaceEscape:
     def draw_phase_victory(self):
         """Desenha tela de vitória da fase"""
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
+        # Tocar som de tela de espera da fase
+        try:
+            self._start_loop("sound_load_levels", "_phase_wait_snd_playing", "_chan_phase_wait")
+        except Exception:
+            pass
 
         title = self.font_large.render("Fase vencida!", True, Colors.YELLOW)
         phase_label = self.font_small.render(
@@ -1402,6 +1583,14 @@ class SpaceEscape:
         options = ["Continuar", "Salvar e voltar ao menu", "Salvar e fechar o jogo"]
         selected = 0
 
+        # Tocar som de pausa em loop
+        try:
+            # interrompe aviso de poucas vidas durante a pausa
+            self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
+            self._start_loop("sound_pause_game", "_pause_snd_playing", "_chan_pause")
+        except Exception:
+            pass
+
         paused = True
         while paused:
             self.draw_gameplay()
@@ -1425,6 +1614,10 @@ class SpaceEscape:
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
+                    try:
+                        self._stop_loop("_pause_snd_playing", "_chan_pause")
+                    except Exception:
+                        pass
                     return False
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_DOWN, pygame.K_s):
@@ -1435,11 +1628,19 @@ class SpaceEscape:
                         # Continuar
                         self.state = GameState.PLAYING
                         paused = False
+                        try:
+                            self._stop_loop("_pause_snd_playing", "_chan_pause")
+                        except Exception:
+                            pass
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         choice = options[selected]
                         if choice == "Continuar":
                             self.state = GameState.PLAYING
                             paused = False
+                            try:
+                                self._stop_loop("_pause_snd_playing", "_chan_pause")
+                            except Exception:
+                                pass
                         elif choice == "Salvar e voltar ao menu":
                             # Salva progresso atual e volta ao menu principal
                             if self.player is not None:
@@ -1451,6 +1652,10 @@ class SpaceEscape:
                                 )
                             self.state = GameState.MENU
                             paused = False
+                            try:
+                                self._stop_loop("_pause_snd_playing", "_chan_pause")
+                            except Exception:
+                                pass
                         elif choice == "Salvar e fechar o jogo":
                             # Salva progresso atual e encerra aplicação
                             if self.player is not None:
@@ -1460,6 +1665,10 @@ class SpaceEscape:
                                     items_collected=self.items_collected,
                                     boss_defeated=self.boss_defeated
                                 )
+                            try:
+                                self._stop_loop("_pause_snd_playing", "_chan_pause")
+                            except Exception:
+                                pass
                             return False
 
             self.clock.tick(self.config.FPS)
@@ -1546,6 +1755,11 @@ class SpaceEscape:
         diffs = list(DIFFICULTIES.keys())
         selected = diffs.index(self.difficulty)
         choosing = True
+        # Som de ponte espacial durante a escolha de dificuldade
+        try:
+            self._start_loop("sound_space_bridge", "_space_bridge_playing", "_chan_space_bridge")
+        except Exception:
+            pass
 
         while choosing:
             self.screen.blit(self.bg_menu, (0, 0))
@@ -1568,6 +1782,10 @@ class SpaceEscape:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     choosing = False
+                    try:
+                        self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+                    except Exception:
+                        pass
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_DOWN, pygame.K_s):
                         selected = (selected + 1) % len(diffs)
@@ -1576,8 +1794,16 @@ class SpaceEscape:
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         self.difficulty = diffs[selected]
                         choosing = False
+                        try:
+                            self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+                        except Exception:
+                            pass
                     elif event.key == pygame.K_ESCAPE:
                         choosing = False
+                        try:
+                            self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+                        except Exception:
+                            pass
 
             self.clock.tick(self.config.FPS)
 
@@ -1591,6 +1817,11 @@ class SpaceEscape:
         ]
         selected = 0
         choosing = True
+        # Som de ponte espacial durante a configuração do som
+        try:
+            self._start_loop("sound_space_bridge", "_space_bridge_playing", "_chan_space_bridge")
+        except Exception:
+            pass
 
         def _vol_to_percent(v: float) -> int:
             try:
@@ -1623,6 +1854,10 @@ class SpaceEscape:
                 if event.type == pygame.QUIT:
                     choosing = False
                     self.state = GameState.MENU
+                    try:
+                        self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+                    except Exception:
+                        pass
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_DOWN, pygame.K_s):
                         selected = (selected + 1) % len(options)
@@ -1666,7 +1901,27 @@ class SpaceEscape:
             boss_defeated=self.boss_defeated
         )
 
+        # Parar loops e sons persistentes
+        try:
+            self._stop_loop("_pause_snd_playing", "_chan_pause")
+            self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
+            self._stop_loop("_phase_wait_snd_playing", "_chan_phase_wait")
+            self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+        except Exception:
+            pass
+        try:
+            if self._chan_boss_final:
+                self._chan_boss_final.stop()
+        except Exception:
+            pass
+
         pygame.mixer.music.stop()
+        # Som de game over
+        try:
+            if hasattr(self, 'sound_gameover') and self.sound_gameover and self.sound_enabled.get('point', True):
+                self.sound_gameover.play()
+        except Exception:
+            pass
 
         self.screen.blit(self.bg_endgame, (0, 0))
 

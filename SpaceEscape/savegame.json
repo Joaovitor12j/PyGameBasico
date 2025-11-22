@@ -1,13 +1,1 @@
-{
-  "difficulty": "Normal",
-  "score": 16,
-  "lives": 10,
-  "phase": 0,
-  "player": {
-    "x": 356,
-    "y": 570
-  },
-  "items_collected": 0,
-  "boss_defeated": false,
-  "highscore": 4395
-}
+{"difficulty": "Normal", "score": 595, "lives": 9, "phase": 1, "player": {"x": 353, "y": 484}, "items_collected": 1, "boss_defeated": false, "highscore": 4395, "volumes": {"point": 0.2, "hit": 0.2, "shoot": 0.2, "music": 0.15}, "sound_enabled": {"point": true, "hit": true, "shoot": true, "music": true}}
