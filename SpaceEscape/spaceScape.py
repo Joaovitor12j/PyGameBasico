@@ -324,11 +324,12 @@ class Player(pygame.sprite.Sprite):
     """Representa o jogador como um Sprite"""
 
     def __init__(self, x: int, y: int, idle_img: pygame.Surface,
-                 up_img: pygame.Surface):
+                 up_img: pygame.Surface, control_scheme: str = "both"):
         super().__init__()
         self.idle_img = idle_img
         self.up_img = up_img
         self.current_img = idle_img
+        self.control_scheme = control_scheme
 
         self.image = self.current_img
         self.rect = self.image.get_rect(center=(x, y))
@@ -343,18 +344,19 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = (clamped_x, clamped_y)
 
     def update(self, keys, screen_width: int, screen_height: int):
-        # Movimento horizontal (Setas e WASD)
-        if (keys[pygame.K_LEFT] or keys[pygame.K_a]) and self.rect.left > 0:
+        use_arrows = self.control_scheme in ("both", "arrows")
+        use_wasd = self.control_scheme in ("both", "wasd")
+
+        if ((use_arrows and keys[pygame.K_LEFT]) or (use_wasd and keys[pygame.K_a])) and self.rect.left > 0:
             self.rect.x -= self.speed
-        if (keys[pygame.K_RIGHT] or keys[pygame.K_d]) and self.rect.right < screen_width:
+        if ((use_arrows and keys[pygame.K_RIGHT]) or (use_wasd and keys[pygame.K_d])) and self.rect.right < screen_width:
             self.rect.x += self.speed
 
-        # Movimento vertical (Setas e WASD)
         self.moving_up = False
-        if (keys[pygame.K_UP] or keys[pygame.K_w]) and self.rect.top > 0:
+        if ((use_arrows and keys[pygame.K_UP]) or (use_wasd and keys[pygame.K_w])) and self.rect.top > 0:
             self.rect.y -= self.speed
             self.moving_up = True
-        if (keys[pygame.K_DOWN] or keys[pygame.K_s]) and self.rect.bottom < screen_height:
+        if ((use_arrows and keys[pygame.K_DOWN]) or (use_wasd and keys[pygame.K_s])) and self.rect.bottom < screen_height:
             self.rect.y += self.speed
 
         # Atualiza sprite
@@ -495,6 +497,8 @@ class SpaceEscape:
         self.lives = 0
         self.phase = 0
         self.player = None
+        self.player2 = None
+        self.multiplayer = False
         self.phase_victory_end = None
         # Progresso por fase
         self.items_collected = 0
@@ -510,6 +514,8 @@ class SpaceEscape:
         self.invulnerable_until_ms: int = 0
         # Projéteis
         self.last_shot_ms: int = 0
+        self.last_shot_ms_p1: int = 0
+        self.last_shot_ms_p2: int = 0
 
         # Fontes
         self.font_large = pygame.font.Font(None, 96)
@@ -728,7 +734,9 @@ class SpaceEscape:
             self.all_sprites.add(self.player)
 
     def new_game(self):
-        """Inicia um novo jogo"""
+        """Inicia um novo jogo (single-player)"""
+        self.multiplayer = False
+        self.player2 = None
         diff_config = DIFFICULTIES[self.difficulty]
         self.score = 0
         self.lives = diff_config.lives
@@ -742,14 +750,17 @@ class SpaceEscape:
         self.next_shield_spawn_score = None
         self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
+        self.last_shot_ms_p1 = 0
+        self.last_shot_ms_p2 = 0
 
         # Cria o jogador (se ainda não existir) ou reposiciona
         if not self.player:
             self.player = Player(
                 self.config.WIDTH // 2, self.config.HEIGHT - 60,
-                self.player_idle, self.player_up
+                self.player_idle, self.player_up, control_scheme="both"
             )
         else:
+            self.player.control_scheme = "both"
             self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
 
         # Adiciona o jogador aos grupos
@@ -766,6 +777,54 @@ class SpaceEscape:
             self.shield_aura_group.empty()
 
         # Cria novas naves inimigas
+        self._create_enemies(diff_config.scale_for_phase(0))
+
+        self._reset_item_spawn_schedule()
+        self._reset_shield_spawn_schedule()
+        self.state = GameState.PLAYING
+
+    def new_game_multiplayer(self):
+        """Inicia um novo jogo em modo Multiplayer (2 jogadores, tiros automáticos)"""
+        self.multiplayer = True
+        diff_config = DIFFICULTIES[self.difficulty]
+        self.score = 0
+        self.lives = diff_config.lives
+        self.phase = 0
+        self.items_collected = 0
+        self.boss_defeated = False
+        self.boss_spawned = False
+        self.boss_hp = 0.0
+        self.boss_group.empty()
+        self.next_item_spawn_score = None
+        self.next_shield_spawn_score = None
+        self.invulnerable_until_ms = 0
+        now = pygame.time.get_ticks()
+        self.last_shot_ms_p1 = now
+        self.last_shot_ms_p2 = now
+
+        # Cria os dois jogadores
+        self.player = Player(
+            self.config.WIDTH // 3, self.config.HEIGHT - 60,
+            self.player_idle, self.player_up, control_scheme="arrows"
+        )
+        self.player2 = Player(
+            (self.config.WIDTH * 2) // 3, self.config.HEIGHT - 60,
+            self.player_idle, self.player_up, control_scheme="wasd"
+        )
+
+        # Adiciona jogadores e limpa demais grupos
+        self.enemy_group.empty()
+        self.item_group.empty()
+        self.shield_group.empty()
+        self.bullet_group.empty()
+        self.explosion_group.empty()
+        if hasattr(self, 'shield_aura_group'):
+            self.shield_aura_group.empty()
+        self.all_sprites.empty()
+        self.all_sprites.add(self.player)
+        self.all_sprites.add(self.player2)
+
+        # Cria inimigos
         self._create_enemies(diff_config.scale_for_phase(0))
 
         self._reset_item_spawn_schedule()
@@ -937,7 +996,7 @@ class SpaceEscape:
         self.boss_spawned = False
         self.boss_hp = 0.0
 
-        # Limpa todos os sprites (exceto o jogador)
+        # Limpa todos os sprites (exceto os jogadores)
         self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
@@ -946,14 +1005,24 @@ class SpaceEscape:
         self.boss_group.empty()
 
         self.all_sprites.empty()
-        self.all_sprites.add(self.player)
+        if self.player:
+            self.all_sprites.add(self.player)
+        if self.multiplayer and getattr(self, 'player2', None):
+            self.all_sprites.add(self.player2)
 
         self._reset_item_spawn_schedule()
         self._reset_shield_spawn_schedule()
         self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
+        self.last_shot_ms_p1 = 0
+        self.last_shot_ms_p2 = 0
 
-        self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
+        if self.player:
+            self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
+        if self.multiplayer and getattr(self, 'player2', None):
+            # Posiciona os dois jogadores lado a lado
+            self.player.reset_position(self.config.WIDTH // 3, self.config.HEIGHT - 60)
+            self.player2.reset_position((self.config.WIDTH * 2) // 3, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
         self._create_enemies(diff_config.scale_for_phase(self.phase))
 
@@ -1016,7 +1085,7 @@ class SpaceEscape:
         right = min(self.config.WIDTH - 1, boss_right + pad)
         if left >= right:
             return None
-        return (left, right)
+        return left, right
 
     def _rand_x_avoiding_boss_column(self, sprite_w: int) -> int:
         forbid = self.get_boss_forbidden_x_range(sprite_w)
@@ -1047,9 +1116,9 @@ class SpaceEscape:
 
     def _update_boss_sprite_by_hp(self):
         """Atualiza o sprite do boss conforme a vida.
-        - Inicial: sleep
-        - ← 90%: normal (golem_boss)
-        - ← 50%: volta ao sleep (golem_boss_sleep)
+        Inicial: sleep
+        ← 90%: normal (golem boss)
+        ← 50%: volta ao sleep (golem_boss_sleep)
         """
         if not self.boss_spawned or not self.boss:
             return
@@ -1083,11 +1152,42 @@ class SpaceEscape:
         """Atualiza lógica do gameplay usando grupos de sprites"""
         keys = pygame.key.get_pressed()
 
-        self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
+        # Atualiza jogadores
+        if self.multiplayer and getattr(self, 'player2', None):
+            self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
+            self.player2.update(keys, self.config.WIDTH, self.config.HEIGHT)
+        else:
+            self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
 
-        self._try_shoot(keys)
+        if self.multiplayer and getattr(self, 'player2', None):
+            now = pygame.time.get_ticks()
+            if now - self.last_shot_ms_p1 >= Sizes.FIRE_COOLDOWN_MS:
+                bx = self.player.rect.centerx - Sizes.BULLET[0] // 2
+                by = self.player.rect.top - Sizes.BULLET[1]
+                bullet = Bullet(bx, by)
+                self.all_sprites.add(bullet)
+                self.bullet_group.add(bullet)
+                self.last_shot_ms_p1 = now
+                if hasattr(self, "sound_shoot") and self.sound_shoot:
+                    try:
+                        self.sound_shoot.play()
+                    except Exception:
+                        pass
+            if now - self.last_shot_ms_p2 >= Sizes.FIRE_COOLDOWN_MS:
+                bx = self.player2.rect.centerx - Sizes.BULLET[0] // 2
+                by = self.player2.rect.top - Sizes.BULLET[1]
+                bullet = Bullet(bx, by)
+                self.all_sprites.add(bullet)
+                self.bullet_group.add(bullet)
+                self.last_shot_ms_p2 = now
+                if hasattr(self, "sound_shoot") and self.sound_shoot:
+                    try:
+                        self.sound_shoot.play()
+                    except Exception:
+                        pass
+        else:
+            self._try_shoot(keys)
 
-        # Atualiza todos os outros sprites
         self.enemy_group.update()
         self.item_group.update()
         self.shield_group.update()
@@ -1104,13 +1204,14 @@ class SpaceEscape:
         aura_active = hasattr(self, 'shield_aura_group') and getattr(self, 'shield_aura_group', None) is not None and len(self.shield_aura_group) > 0
         now_ms = pygame.time.get_ticks()
         inv_active = now_ms < self.invulnerable_until_ms
-        if inv_active and not aura_active and self.player is not None:
+        owner = getattr(self, 'aura_owner', self.player)
+        if inv_active and not aura_active and owner is not None:
             try:
                 self.shield_aura_group = getattr(self, 'shield_aura_group', pygame.sprite.GroupSingle())
                 if len(self.shield_aura_group) > 0:
                     for s in self.shield_aura_group.sprites():
                         s.kill()
-                aura = ShieldAura(self.player)
+                aura = ShieldAura(owner)
                 self.shield_aura_group.add(aura)
             except Exception:
                 pass
@@ -1123,23 +1224,27 @@ class SpaceEscape:
         if hasattr(self, 'shield_aura_group') and self.shield_aura_group:
             self.shield_aura_group.update()
 
-        hits = pygame.sprite.spritecollide(self.player, self.enemy_group, False)
-        if hits:
-            now = pygame.time.get_ticks()
-            inv_active = now < self.invulnerable_until_ms
-            for enemy_hit in hits:
-                if not inv_active:
-                    self._handle_enemy_collision()  # Lógica de dano e penalidade
-                # Sempre reposiciona a nave inimiga
-                enemy_hit.randomize_position()
-                enemy_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
-
-                if self.lives <= 0 and not inv_active:
+        def process_player_enemy_collisions(plyr):
+            hits_local = pygame.sprite.spritecollide(plyr, self.enemy_group, False)
+            if hits_local:
+                now_loc = pygame.time.get_ticks()
+                inv_loc = now_loc < self.invulnerable_until_ms
+                for enemy_hit in hits_local:
+                    if not inv_loc:
+                        self._handle_enemy_collision()
+                    enemy_hit.randomize_position()
+                    enemy_hit.speed = random.randint(diff_config.speed_min, diff_config.speed_max)
+                if self.lives <= 0 and not inv_loc:
                     self.state = GameState.GAME_OVER
-                    return
+                    return True
+            return False
 
-        # Colisão Projétil vs Naves inimigas
-        # (True, True = destrói ambos, bala e nave inimiga)
+        if process_player_enemy_collisions(self.player):
+            return
+        if self.multiplayer and getattr(self, 'player2', None):
+            if process_player_enemy_collisions(self.player2):
+                return
+
         hits = pygame.sprite.groupcollide(self.bullet_group, self.enemy_group, True, True)
         if hits:
             for enemy_list in hits.values():
@@ -1159,7 +1264,6 @@ class SpaceEscape:
                     if frames_to_use:
                         exp = Explosion(enemy.rect.center, frames_to_use, frame_time_ms=40, scale=(80, 80))
                         self.explosion_group.add(exp)
-                    # Pontuação por destruir com tiro
                     self.score += 1
                     if self.sound_point:
                         self.sound_point.play()
@@ -1173,7 +1277,6 @@ class SpaceEscape:
                     self.all_sprites.add(new_enemy)
                     self.enemy_group.add(new_enemy)
 
-        # Colisão Projétil vs Boss (não destrói o boss até HP chegar a 0)
         if self.boss_spawned and not self.boss_defeated:
             boss_hits = pygame.sprite.groupcollide(self.bullet_group, self.boss_group, True, False)
             if boss_hits:
@@ -1188,7 +1291,6 @@ class SpaceEscape:
                             break
 
                 self._update_boss_sprite_by_hp()
-                # Derrota do boss
                 if self.boss_hp <= 0.0 and self.boss:
                     self.boss_defeated = True
                     self.boss_spawned = False
@@ -1197,48 +1299,45 @@ class SpaceEscape:
                     except Exception:
                         pass
                     self.boss = None
-                    # Pequena recompensa opcional por derrotar boss
                     self.score += 5
 
-        # Colisão Jogador vs Itens
-        # (True = destrói o item ao coletar)
-        item_hits = pygame.sprite.spritecollide(self.player, self.item_group, True)
-        if item_hits:
-            self.items_collected += len(item_hits)
-            if self.sound_point:
-                self.sound_point.play()
+        def process_item_pickups(plyr):
+            item_hits_local = pygame.sprite.spritecollide(plyr, self.item_group, True)
+            if item_hits_local:
+                self.items_collected += len(item_hits_local)
+                if self.sound_point:
+                    self.sound_point.play()
+        process_item_pickups(self.player)
+        if self.multiplayer and getattr(self, 'player2', None):
+            process_item_pickups(self.player2)
 
-        # Colisão Jogador vs Shield
-        shield_hits = pygame.sprite.spritecollide(self.player, self.shield_group, True)
-        if shield_hits:
-            # 5 segundos de invulnerabilidade
-            self.invulnerable_until_ms = pygame.time.get_ticks() + 5000
-            if self.sound_point:
-                self.sound_point.play()
+        def process_shield_pickups(plyr):
+            shield_hits_local = pygame.sprite.spritecollide(plyr, self.shield_group, True)
+            if shield_hits_local:
+                self.invulnerable_until_ms = pygame.time.get_ticks() + 5000
+                self.aura_owner = plyr
+                if self.sound_point:
+                    self.sound_point.play()
+        process_shield_pickups(self.player)
+        if self.multiplayer and getattr(self, 'player2', None):
+            process_shield_pickups(self.player2)
 
         # --- 3. Lógica de Jogo (Spawns, Vitória) ---
-
-        # (Os loops manuais de update e colisão foram todos removidos)
-
-        # Spawns de itens por pontuação (Fase 2 e 3)
         if self._is_item_enabled():
             if self.next_item_spawn_score is None:
                 self._reset_item_spawn_schedule()
-
             if self.next_item_spawn_score is not None and self.score >= self.next_item_spawn_score:
-                if len(self.item_group) == 0:  # Checa se não há itens na tela
+                if len(self.item_group) == 0:
                     self._spawn_item()
                 self.next_item_spawn_score += 20
 
-        # Spawn de shield a cada 33 pontos (sempre ativo, independente da fase)
         if self.next_shield_spawn_score is None:
             self._reset_shield_spawn_schedule()
         if self.next_shield_spawn_score is not None and self.score >= self.next_shield_spawn_score:
-            if len(self.shield_group) == 0:  # Checa se não há shield na tela
+            if len(self.shield_group) == 0:
                 self._spawn_shield()
             self.next_shield_spawn_score += 33
 
-        # Verifica vitória da fase
         if self._has_phase_victory():
             self.state = GameState.PHASE_VICTORY
             self.phase_victory_end = pygame.time.get_ticks() + self.config.PHASE_VICTORY_DURATION
@@ -1369,7 +1468,7 @@ class SpaceEscape:
 
     def run_menu(self) -> bool:
         """Executa menu. Retorna False se deve sair do jogo"""
-        menu_options = ["Novo jogo", "Carregar jogo salvo", "Escolher dificuldade", "Configurações", "Sair"]
+        menu_options = ["Novo jogo", "Multiplayer", "Carregar jogo salvo", "Escolher dificuldade", "Configurações", "Sair"]
         selected = 0
         message = ""
         message_timer = 0
@@ -1423,6 +1522,8 @@ class SpaceEscape:
                         choice = menu_options[selected]
                         if choice == "Novo jogo":
                             self.new_game()
+                        elif choice == "Multiplayer":
+                            self.new_game_multiplayer()
                         elif choice == "Carregar jogo salvo":
                             if not self.load_game():
                                 message = "Nenhum jogo salvo encontrado."
