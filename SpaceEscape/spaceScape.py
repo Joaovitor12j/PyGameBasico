@@ -367,7 +367,6 @@ class Player(pygame.sprite.Sprite):
         if ((use_arrows and keys[pygame.K_DOWN]) or (use_wasd and keys[pygame.K_s])) and self.rect.bottom < screen_height:
             self.rect.y += self.speed
 
-        # Atualiza sprite
         self.current_img = self.up_img if self.moving_up else self.idle_img
         self.image = self.current_img
 
@@ -476,19 +475,17 @@ class SpaceEscape:
         global CURRENT_GAME
         CURRENT_GAME = self
 
-        # Gerenciadores
         asset_dir = os.path.dirname(os.path.abspath(__file__))
         self.resources = ResourceManager(asset_dir)
         self.save_manager = SaveManager(os.path.join(asset_dir, self.config.SAVE_FILE))
 
-        # Volumes (defaults)
         self.volumes = {
             "point": 0.3,  # Efeito de ponto
             "hit": 0.3,    # Efeito de dano
             "shoot": 0.2,  # Som do disparo
             "music": 0.3,  # Música de fundo
         }
-        # Flags de habilitação de sons (permite desativar individualmente)
+
         self.sound_enabled = {
             "point": True,
             "hit": True,
@@ -496,11 +493,9 @@ class SpaceEscape:
             "music": True,
         }
 
-        # Tenta carregar configurações de som do save antes de carregar recursos
         try:
             saved = self.save_manager.load()
             if saved:
-                # volumes
                 if isinstance(saved.get("volumes"), dict):
                     for k, v in saved["volumes"].items():
                         if k in self.volumes:
@@ -508,7 +503,6 @@ class SpaceEscape:
                                 self.volumes[k] = _normalize_volume_value(v)
                             except Exception:
                                 pass
-                # enabled flags
                 if isinstance(saved.get("sound_enabled"), dict):
                     for k, v in saved["sound_enabled"].items():
                         if k in self.sound_enabled and isinstance(v, bool):
@@ -516,7 +510,6 @@ class SpaceEscape:
         except Exception as e:
             print(f"Aviso: falha ao carregar configurações de som do save: {e}")
 
-        # Carrega recursos
         self._load_resources()
 
         # --- Grupos de Sprites ---
@@ -545,8 +538,8 @@ class SpaceEscape:
         self._chan_pause = None
         self._chan_space_bridge = None
         self._chan_boss_final = None
-        # Controle de mix e ganho de SFX
-        self._sfx_duck = 1.0  # 1.0 normal; <1.0 abaixa os SFX (usado durante load_levels)
+
+        self._sfx_duck = 1.0
         self._sfx_boost = {
             "low_lifes": 6.0,
             "space_bridge": 5.8,
@@ -565,19 +558,14 @@ class SpaceEscape:
         self.player2 = None
         self.multiplayer = False
         self.phase_victory_end = None
-        # Progresso por fase
         self.items_collected = 0
         self.boss_defeated = False
-        # Boss state
         self.boss = None
         self.boss_hp: float = 0.0
         self.boss_spawned: bool = False
-        # Itens coletáveis e agendamento de spawn
         self.next_item_spawn_score: Optional[int] = None
         self.next_shield_spawn_score: Optional[int] = None
-        # Estado de invulnerabilidade (escudo)
         self.invulnerable_until_ms: int = 0
-        # Projéteis
         self.last_shot_ms: int = 0
         self.last_shot_ms_p1: int = 0
         self.last_shot_ms_p2: int = 0
@@ -731,12 +719,10 @@ class SpaceEscape:
             print(f"Aviso: falha ao listar frames enemy_2_Explosion: {e}")
 
     def _apply_volumes(self):
-        # Sons (SFX)
         point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
         hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
         shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
         music_base_vol = self.volumes.get("music", 0.0) if self.sound_enabled.get("music", True) else 0.0
-        # Volume base para SFX adicionais: usa o maior volume dentre SFX habilitados (point/hit/shoot)
         try:
             sfx_candidates = []
             if self.sound_enabled.get("point", True):
@@ -748,7 +734,6 @@ class SpaceEscape:
             sfx_vol = max(sfx_candidates) if sfx_candidates else 0.0
         except Exception:
             sfx_vol = point_vol
-        # Volume base alternativo independente das flags (para sons críticos como boss)
         try:
             sfx_vol_any = max(
                 float(self.volumes.get("point", 0.0)),
@@ -788,7 +773,6 @@ class SpaceEscape:
             except Exception:
                 pass
 
-        # Volumes dos SFX base
         if hasattr(self, "sound_point") and self.sound_point:
             try:
                 self.sound_point.set_volume(point_vol)
@@ -805,9 +789,7 @@ class SpaceEscape:
             except Exception:
                 pass
 
-        # Novos sons: aplicam boost; load_levels NÃO sofre ducking
         _apply_sound_with_boost("sound_low_lifes", sfx_vol, apply_duck=True, chan_attr="_chan_low_lifes")
-        # Sons do boss usam fallback independente das flags quando necessário
         boss_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
         _apply_sound_with_boost("sound_boss_final", boss_base, apply_duck=True, chan_attr="_chan_boss_final")
         collect_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
@@ -820,7 +802,6 @@ class SpaceEscape:
         _apply_sound_with_boost("sound_load_levels", load_base, apply_duck=False, chan_attr="_chan_phase_wait")
 
         try:
-            # Ajusta volume e estado de pausa da música conforme flag; música sofre ducking
             music_vol = _clamp01(music_base_vol * (self._sfx_duck if self.sound_enabled.get("music", True) else 1.0))
             pygame.mixer.music.set_volume(music_vol)
             if not self.sound_enabled.get("music", True):
@@ -836,7 +817,6 @@ class SpaceEscape:
         except Exception:
             pass
 
-    # Helpers de áudio
     def _is_sfx_enabled(self) -> bool:
         try:
             return any(self.sound_enabled.get(k, True) for k in ("point", "hit", "shoot"))
@@ -851,7 +831,6 @@ class SpaceEscape:
                     ch = snd.play(-1)
                     setattr(self, flag_attr, True)
                     setattr(self, chan_attr, ch)
-                    # Ajusta volume imediato do canal conforme boost/ducking atual
                     try:
                         if use_any_base:
                             point_vol = float(self.volumes.get("point", 0.0))
@@ -865,7 +844,6 @@ class SpaceEscape:
                             [self.sound_enabled.get(k, True) for k in ("point", "hit", "shoot")]
                         )) else 0.0
                         key = sound_attr.replace("sound_", "")
-                        boost = 1.0
                         try:
                             boost = self._sfx_boost.get(key, 1.0)
                         except Exception:
@@ -895,12 +873,10 @@ class SpaceEscape:
             pass
 
     def _update_dynamic_sounds(self):
-        # Low lives loop while playing and 3 or fewer lives
         if self.state == GameState.PLAYING and self.lives <= 3:
             self._start_loop("sound_low_lifes", "_low_lifes_playing", "_chan_low_lifes", bypass_flags=True, use_any_base=True)
         else:
             self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
-        # Boss final timeout handling
         if self._boss_final_end_ms is not None and pygame.time.get_ticks() >= self._boss_final_end_ms:
             try:
                 if self._chan_boss_final:
@@ -934,7 +910,6 @@ class SpaceEscape:
     def _create_enemies(self, config: DifficultyConfig):
         """Cria naves inimigas e os ADICIONA AOS GRUPOS"""
         for _ in range(config.enemies):
-            # Evita coluna do boss (caso já esteja ativo ao carregar jogo numa fase alta)
             x = self._rand_x_avoiding_boss_column(Sizes.ENEMY[0])
             y = random.randint(-500, -40)
             speed = random.randint(config.speed_min, config.speed_max)
@@ -943,7 +918,6 @@ class SpaceEscape:
 
             enemy = Enemy(x, y, speed, img)
 
-            # Adiciona aos grupos
             self.all_sprites.add(enemy)
             self.enemy_group.add(enemy)
 
@@ -981,7 +955,6 @@ class SpaceEscape:
         self.last_shot_ms_p1 = 0
         self.last_shot_ms_p2 = 0
 
-        # Cria o jogador (se ainda não existir) ou reposiciona
         if not self.player:
             self.player = Player(
                 self.config.WIDTH // 2, self.config.HEIGHT - 60,
@@ -991,11 +964,9 @@ class SpaceEscape:
             self.player.control_scheme = "both"
             self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
 
-        # Adiciona o jogador aos grupos
         self.player_group.add(self.player)
         self.all_sprites.add(self.player)
 
-        # Limpa sprites antigos
         self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
@@ -1004,7 +975,6 @@ class SpaceEscape:
         if hasattr(self, 'shield_aura_group'):
             self.shield_aura_group.empty()
 
-        # Cria novas naves inimigas
         self._create_enemies(diff_config.scale_for_phase(0))
 
         self._reset_item_spawn_schedule()
@@ -1030,7 +1000,6 @@ class SpaceEscape:
         self.last_shot_ms_p1 = now
         self.last_shot_ms_p2 = now
 
-        # Cria os dois jogadores
         self.player = Player(
             self.config.WIDTH // 3, self.config.HEIGHT - 60,
             self.player_idle, self.player_up, control_scheme="arrows"
@@ -1040,7 +1009,6 @@ class SpaceEscape:
             self.player_idle, self.player_up, control_scheme="wasd"
         )
 
-        # Adiciona jogadores e limpa demais grupos
         self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
@@ -1052,7 +1020,6 @@ class SpaceEscape:
         self.all_sprites.add(self.player)
         self.all_sprites.add(self.player2)
 
-        # Cria inimigos
         self._create_enemies(diff_config.scale_for_phase(0))
 
         self._reset_item_spawn_schedule()
@@ -1072,7 +1039,6 @@ class SpaceEscape:
         self.items_collected = data.get("items_collected", 0)
         self.boss_defeated = data.get("boss_defeated", False)
 
-        # Aplicar configurações de som salvas (se houver)
         try:
             if isinstance(data.get("volumes"), dict):
                 for k, v in data["volumes"].items():
@@ -1098,7 +1064,6 @@ class SpaceEscape:
         self.invulnerable_until_ms = 0
         self.last_shot_ms = 0
 
-        # Cria ou reposiciona o jogador
         if not self.player:
             self.player = Player(
                 self.config.WIDTH // 2, self.config.HEIGHT - 60,
@@ -1154,13 +1119,10 @@ class SpaceEscape:
 
     def _has_phase_victory(self) -> bool:
         """Valida as condições de vitória da fase atual."""
-        # Pontos
         if self.score < self._get_phase_target():
             return False
-        # Itens
         if self.items_collected < self._get_phase_required_items():
             return False
-        # Chefe (se requerido)
         if self._is_boss_required() and not self.boss_defeated:
             return False
         return True
