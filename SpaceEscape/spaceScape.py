@@ -19,6 +19,7 @@ class GameState(Enum):
     PAUSED = "paused"
     PHASE_VICTORY = "phase_victory"
     GAME_OVER = "game_over"
+    VICTORY = "victory"
 
 @dataclass
 class GameConfig:
@@ -1141,22 +1142,18 @@ class SpaceEscape:
     # Itens coletáveis - Fase 2 e 3
     # =============================
     def _is_item_enabled(self) -> bool:
-        """Itens aparecem a partir da Fase 2 (phase==1) e Fase 3+ (phase>=2)."""
         return self.phase >= 1
 
     def _item_speed_for_phase(self) -> int:
-        """Velocidade do item por fase: Fase 2 -> 7, Fase 3+ -> 8."""
         return 7 if self.phase == 1 else 8
 
     def _reset_item_spawn_schedule(self):
-        """Inicializa o próximo marco de pontuação para spawn de item."""
         if self._is_item_enabled():
             self.next_item_spawn_score = _next_multiple_of_20_above(self.score)
         else:
             self.next_item_spawn_score = None
 
     def _reset_shield_spawn_schedule(self):
-        """Inicializa o próximo marco de pontuação para spawn de shield (a cada 33 pontos, sempre ativo)."""
         self.next_shield_spawn_score = _next_multiple_of_33_above(self.score)
 
     def _spawn_item(self):
@@ -1185,7 +1182,7 @@ class SpaceEscape:
 
     def _handle_enemy_collision(self):
         """Processa colisão com naves inimigas"""
-        self.lives -= 1 # Dano de vida
+        self.lives -= 1
 
         if 0 < self.score < 50:
             self.score = max(0, self.score - 2)
@@ -1197,12 +1194,10 @@ class SpaceEscape:
 
     def _advance_phase(self):
         """Avança para a próxima fase"""
-        # Parar som de espera de fase, se ativo
         try:
             self._stop_loop("_phase_wait_snd_playing", "_chan_phase_wait")
         except Exception:
             pass
-        # Restaura volumes após tela de espera da fase
         self._sfx_duck = 1.0
         try:
             self._apply_volumes()
@@ -1214,7 +1209,6 @@ class SpaceEscape:
         self.boss_spawned = False
         self.boss_hp = 0.0
 
-        # Limpa todos os sprites (exceto os jogadores)
         self.enemy_group.empty()
         self.item_group.empty()
         self.shield_group.empty()
@@ -1238,7 +1232,6 @@ class SpaceEscape:
         if self.player:
             self.player.reset_position(self.config.WIDTH // 2, self.config.HEIGHT - 60)
         if self.multiplayer and getattr(self, 'player2', None):
-            # Posiciona os dois jogadores lado a lado
             self.player.reset_position(self.config.WIDTH // 3, self.config.HEIGHT - 60)
             self.player2.reset_position((self.config.WIDTH * 2) // 3, self.config.HEIGHT - 60)
         diff_config = DIFFICULTIES[self.difficulty]
@@ -1248,7 +1241,7 @@ class SpaceEscape:
         self.phase_victory_end = None
 
     def _try_shoot(self, keys):
-        """Dispara projétil se Espaço estiver pressionado e cooldown permitir."""
+        """Dispara projétil se Espaço estiver pressionado."""
         if not self.player:
             return
         if not keys[pygame.K_SPACE]:
@@ -1279,7 +1272,6 @@ class SpaceEscape:
             return
         if not self._is_boss_required():
             return
-        # Checa se pontuação e itens atingiram as metas da fase
         if self.score < self._get_phase_target():
             return
         if self.items_collected < self._get_phase_required_items():
@@ -1571,6 +1563,8 @@ class SpaceEscape:
                         pass
                     self.boss = None
                     self.score += 5
+                    self.state = GameState.VICTORY
+                    return
 
         def process_item_pickups(plyr):
             item_hits_local = pygame.sprite.spritecollide(plyr, self.item_group, True)
@@ -2089,6 +2083,85 @@ class SpaceEscape:
 
         return True
 
+    def run_victory(self) -> bool:
+        try:
+            highscore = self.save_manager.save(
+                self.difficulty, self.score, self.lives,
+                self.phase, self.player.rect.center if self.player else (self.config.WIDTH//2, self.config.HEIGHT-60),
+                items_collected=self.items_collected,
+                boss_defeated=True
+            )
+        except Exception:
+            highscore = self.save_manager.get_highscore()
+
+        try:
+            self._stop_loop("_pause_snd_playing", "_chan_pause")
+            self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
+            self._stop_loop("_phase_wait_snd_playing", "_chan_phase_wait")
+            self._stop_loop("_space_bridge_playing", "_chan_space_bridge")
+        except Exception:
+            pass
+        try:
+            if self._chan_boss_final:
+                self._chan_boss_final.stop()
+        except Exception:
+            pass
+
+        self._sfx_duck = 1.0
+        try:
+            self._apply_volumes()
+        except Exception:
+            pass
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
+
+        try:
+            self.screen.blit(self.bg_endgame, (0, 0))
+        except Exception:
+            self.screen.fill((0, 0, 0))
+
+        title = self.font_large.render("VITÓRIA!", True, Colors.YELLOW)
+        subtitle = self.font_small.render("Você derrotou o chefe final!", True, Colors.WHITE)
+
+        labels = [
+            f"Fase: {self.phase + 1}",
+            f"Dificuldade: {self.difficulty}",
+            f"Pontuação: {self.score}",
+            f"Maior pontuação: {highscore}"
+        ]
+
+        self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 120))
+        self.screen.blit(subtitle, (self.config.WIDTH // 2 - subtitle.get_width() // 2, 190))
+
+        start_y = 260
+        for i, text in enumerate(labels):
+            label = self.font_small.render(text, True, Colors.WHITE)
+            self.screen.blit(label, (self.config.WIDTH // 2 - label.get_width() // 2, start_y + i * 50))
+
+        hint = self.font_tiny.render("Pressione qualquer tecla para voltar ao menu", True, Colors.WHITE)
+        self.screen.blit(hint, (self.config.WIDTH // 2 - hint.get_width() // 2, self.config.HEIGHT - 80))
+
+        pygame.display.flip()
+
+        waiting = True
+        start_time = pygame.time.get_ticks()
+        TIMEOUT_MS = 5000
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN:
+                    waiting = False
+                    self.state = GameState.MENU
+            if pygame.time.get_ticks() - start_time >= TIMEOUT_MS:
+                waiting = False
+                self.state = GameState.MENU
+            self.clock.tick(self.config.FPS)
+
+        return True
+
     def run(self):
         """Loop principal do jogo"""
         running = True
@@ -2130,6 +2203,9 @@ class SpaceEscape:
 
             elif self.state == GameState.GAME_OVER:
                 running = self.run_game_over()
+
+            elif self.state == GameState.VICTORY:
+                running = self.run_victory()
 
         pygame.quit()
 
