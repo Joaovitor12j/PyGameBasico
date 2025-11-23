@@ -15,17 +15,12 @@ Este comando:
 
 ### Modo 1: Usar o script `run.sh` (mais simples)
 ```bash
-bash run.sh                           # Roda testeMostraGrade.py
-bash run.sh janelaBasico.py           # Roda outro exemplo
-bash run.sh CatchTheCoin/mainGame.py  # Roda jogo de moedas
-bash run.sh Minesweeper/gameMain.py   # Roda campo minado
 bash run.sh SpaceEscape/spaceScape.py # Roda jogo espacial
 ```
 
 ### Modo 2: Usar diretamente o Python do venv
 ```bash
-.venv/bin/python testeMostraGrade.py
-.venv/bin/python CatchTheCoin/mainGame.py
+.venv/bin/python SpaceEscape/spaceScape.py
 ```
 
 ### Modo 3: Ativar o venv manualmente
