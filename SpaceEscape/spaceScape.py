@@ -461,6 +461,12 @@ class SpaceEscape:
     """Classe principal do jogo"""
     def __init__(self):
         pygame.init()
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.set_num_channels(32)
+        except Exception:
+            pass
 
         self.config = GameConfig()
         self.screen = pygame.display.set_mode((self.config.WIDTH, self.config.HEIGHT))
@@ -804,12 +810,14 @@ class SpaceEscape:
         # Sons do boss usam fallback independente das flags quando necessário
         boss_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
         _apply_sound_with_boost("sound_boss_final", boss_base, apply_duck=True, chan_attr="_chan_boss_final")
-        _apply_sound_with_boost("sound_collect_star", sfx_vol, apply_duck=True)
+        collect_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
+        _apply_sound_with_boost("sound_collect_star", collect_base, apply_duck=True)
         _apply_sound_with_boost("sound_gameover", sfx_vol, apply_duck=True)
         _apply_sound_with_boost("sound_boss_explosion", boss_base, apply_duck=True)
         _apply_sound_with_boost("sound_pause_game", sfx_vol, apply_duck=True, chan_attr="_chan_pause")
         _apply_sound_with_boost("sound_space_bridge", sfx_vol, apply_duck=True, chan_attr="_chan_space_bridge")
-        _apply_sound_with_boost("sound_load_levels", sfx_vol, apply_duck=False, chan_attr="_chan_phase_wait")
+        load_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
+        _apply_sound_with_boost("sound_load_levels", load_base, apply_duck=False, chan_attr="_chan_phase_wait")
 
         try:
             # Ajusta volume e estado de pausa da música conforme flag; música sofre ducking
@@ -835,22 +843,27 @@ class SpaceEscape:
         except Exception:
             return True
 
-    def _start_loop(self, sound_attr: str, flag_attr: str, chan_attr: str):
+    def _start_loop(self, sound_attr: str, flag_attr: str, chan_attr: str, *, bypass_flags: bool = False, use_any_base: bool = False):
         try:
             if not getattr(self, flag_attr, False):
                 snd = getattr(self, sound_attr, None)
-                if snd and self._is_sfx_enabled():
+                if snd and (bypass_flags or self._is_sfx_enabled()):
                     ch = snd.play(-1)
                     setattr(self, flag_attr, True)
                     setattr(self, chan_attr, ch)
                     # Ajusta volume imediato do canal conforme boost/ducking atual
                     try:
-                        point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
-                        hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
-                        shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
-                        sfx_base = max([v for v in (point_vol, hit_vol, shoot_vol)]) if any(
+                        if use_any_base:
+                            point_vol = float(self.volumes.get("point", 0.0))
+                            hit_vol = float(self.volumes.get("hit", 0.0))
+                            shoot_vol = float(self.volumes.get("shoot", 0.0))
+                        else:
+                            point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
+                            hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
+                            shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
+                        sfx_base = max([v for v in (point_vol, hit_vol, shoot_vol)]) if (use_any_base or any(
                             [self.sound_enabled.get(k, True) for k in ("point", "hit", "shoot")]
-                        ) else 0.0
+                        )) else 0.0
                         key = sound_attr.replace("sound_", "")
                         boost = 1.0
                         try:
@@ -859,7 +872,7 @@ class SpaceEscape:
                             boost = 1.0
                         apply_duck = (sound_attr != "sound_load_levels")
                         duck = self._sfx_duck if apply_duck else 1.0
-                        vol = max(0.0, min(1.0, sfx_base * boost * duck))
+                        vol = max(0.0, min(1.0, float(sfx_base) * float(boost) * float(duck)))
                         if ch:
                             ch.set_volume(vol)
                     except Exception:
@@ -884,8 +897,7 @@ class SpaceEscape:
     def _update_dynamic_sounds(self):
         # Low lives loop while playing and 3 or fewer lives
         if self.state == GameState.PLAYING and self.lives <= 3:
-            print("Low lives loop started")
-            self._start_loop("sound_low_lifes", "_low_lifes_playing", "_chan_low_lifes")
+            self._start_loop("sound_low_lifes", "_low_lifes_playing", "_chan_low_lifes", bypass_flags=True, use_any_base=True)
         else:
             self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
         # Boss final timeout handling
@@ -1537,7 +1549,7 @@ class SpaceEscape:
                     if frames_to_use:
                         exp = Explosion(enemy.rect.center, frames_to_use, frame_time_ms=40, scale=(80, 80))
                         self.explosion_group.add(exp)
-                    self.score += 50
+                    self.score += 1
                     if self.sound_point:
                         self.sound_point.play()
 
@@ -1604,7 +1616,19 @@ class SpaceEscape:
                 self.items_collected += len(item_hits_local)
                 try:
                     snd = getattr(self, 'sound_collect_star', None)
-                    if snd and self._is_sfx_enabled():
+                    if snd:
+                        # Ajusta volume para ser audível mesmo com SFX base desativados
+                        try:
+                            point_v = float(self.volumes.get("point", 0.0))
+                            hit_v = float(self.volumes.get("hit", 0.0))
+                            shoot_v = float(self.volumes.get("shoot", 0.0))
+                            base = max(point_v, hit_v, shoot_v)
+                            boost = self._sfx_boost.get("collect_star", 1.0) if hasattr(self, "_sfx_boost") else 1.0
+                            duck = self._sfx_duck if hasattr(self, "_sfx_duck") else 1.0
+                            vol = max(0.0, min(1.0, base * boost * duck))
+                            snd.set_volume(vol)
+                        except Exception:
+                            pass
                         snd.play()
                     elif self.sound_point:
                         self.sound_point.play()
@@ -1679,11 +1703,14 @@ class SpaceEscape:
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
         # Tocar som de tela de espera da fase
         try:
+            # Garante que o aviso de poucas vidas não concorra com o som da tela de espera
+            self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
             if not self._phase_wait_snd_playing:
                 # Ativa ducking dos demais sons enquanto a música de espera toca
                 self._sfx_duck = 0.4
                 self._apply_volumes()
-            self._start_loop("sound_load_levels", "_phase_wait_snd_playing", "_chan_phase_wait")
+            # Inicia mesmo com SFX base desativados e usa o maior slider para volume
+            self._start_loop("sound_load_levels", "_phase_wait_snd_playing", "_chan_phase_wait", bypass_flags=True, use_any_base=True)
         except Exception:
             pass
 
