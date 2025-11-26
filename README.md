@@ -1,67 +1,178 @@
-# PyGame Básico — Configuração e Execução
+# Space Ataque (PyGame) — Guia Completo do Jogo
 
-Este repositório contém exemplos simples usando PyGame (jogos/demos). Este guia fornece as configurações mínimas para instalar as dependências e
-executar os scripts.
+O jogo Space Ataque é um shooter 2D com fases, itens, chefe final, multiplayer local e
+um sistema de áudio completo com salvamento de configurações.
+
+Se você quer apenas jogar, siga o Início Rápido. Se quiser conhecer o funcionamento do jogo (fases, sons, salvamento, etc.), veja as seções abaixo.
 
 ## Requisitos
 
 - Python 3.9 ou superior (recomendado 3.10+)
 - Pip atualizado
-- (Opcional) Ambiente virtual para isolar dependências
+- (Opcional) Ambiente virtual (venv) para isolar dependências
 
 ## 🚀 Início Rápido
 
-Configure e rode o projeto em poucos segundos:
+Configurar e rodar o Space Ataque em poucos passos a partir da raiz do projeto.
 
-### Linux/macOS:
+### Linux/macOS
 
 ```bash
-# Configurar ambiente automaticamente (cria .venv e instala dependências)
+# 1) Preparar ambiente (cria .venv e instala dependências)
 bash setup_env.sh
 
-# Rodar um exemplo
-bash run.sh                        # roda testeMostraGrade.py por padrão
-bash run.sh janelaBasico.py        # roda arquivo específico
-bash run.sh CatchTheCoin/mainGame.py  # roda jogo de moedas
+# 2) Rodar o Space Ataque
+bash run.sh SpaceAtaque/spaceAtaque.py
 ```
 
-### Windows (PowerShell):
+### Windows (PowerShell)
 
 ```powershell
-# Configurar ambiente automaticamente
+# 1) Preparar ambiente (cria .venv e instala dependências)
 pwsh -f setup_env.ps1
 
-# Rodar um exemplo
-pwsh -f run.ps1                    # roda testeMostraGrade.py por padrão
-pwsh -f run.ps1 janelaBasico.py    # roda arquivo específico
+# 2) Rodar o Space Ataque
+pwsh -f run.ps1 SpaceAtaque/spaceAtaque.py
 ```
 
-### Usando diretamente o Python do venv:
+### Usando diretamente o Python do venv
 
 ```bash
 # Após executar setup_env.sh
-.venv/bin/python testeMostraGrade.py
-.venv/bin/python CatchTheCoin/mainGame.py
+.venv/bin/python SpaceAtaque/spaceAtaque.py
 ```
 
-> **Nota para usuários do Cursor**: Este projeto inclui um wrapper especial para garantir compatibilidade total com o Cursor IDE. Os scripts de setup
-> detectam e corrigem automaticamente qualquer conflito.
+> Dica: Você também pode rodar outros exemplos do repositório com os mesmos scripts `run.sh`/`run.ps1`.
 
-## Instalação Manual
+## Como Jogar
 
-1) Confirme a versão do Python e do pip:
+- Movimento (Player 1):
+    - Setas: mover; Espaço: atirar
+    - Alternativamente WASD para mover
+    - Mouse: mover nave (acompanha o cursor); clique também reposiciona
+- Pausa: ESC (abre menu de pausa)
+- Multiplayer local (2 jogadores):
+    - Player 1: setas; Player 2: WASD
+    - Tiros automáticos no modo multiplayer
+
+## Objetivo, Fases e Dificuldades
+
+- Pontuação e fases
+    - Fase 1: alcance 100 pontos
+    - Fase 2: alcance 250 pontos e colete 3 itens (estrelas)
+    - Fase 3+: alcance 350 pontos, colete 3 itens e derrote o chefe
+- Dificuldades disponíveis: Fácil, Normal, Difícil (alterável no menu)
+- Cada fase aumenta a pressão: mais inimigos e maior velocidade
+
+### Itens
+
+- Estrela (coletável a partir da Fase 2): aumenta o contador de itens da fase
+- Escudo: concede invulnerabilidade por ~5 segundos com efeito visual ao redor da nave
+
+### Chefe Final (a partir da Fase 3)
+
+- O chefe aparece quando os objetivos base da fase (pontos + itens) são cumpridos
+- Barra de vida com 100% e mudança de sprite conforme a vida diminui
+- Movimenta-se no topo quando certos thresholds de vida são atingidos
+- Ao derrotá-lo:
+    - Toca o som de explosão do chefe
+    - Você ganha pontos bônus
+    - Surge a Tela de Vitória do jogo e você retorna ao menu principal (automático em 5s ou ao pressionar uma tecla)
+
+## Sistema de Áudio
+
+O jogo possui música e diversos efeitos sonoros com volumes independentes e persistência no save.
+
+- Controles de volume e liga/desliga nas Configurações:
+    - Sliders: point, hit, shoot, music (0–100%)
+    - Flag de habilitação por item (inclui música)
+    - Aplicação imediata: volumes e pausa/despausa de música são aplicados na hora
+- Persistência no savegame: volumes e flags são salvos e restaurados automaticamente ao iniciar o jogo ou carregar o save
+- Sons implementados e quando tocam:
+    - sound_point: quando destrói inimigo e em alguns pickups
+    - sound_hit: ao colidir com inimigos
+    - sound_shoot: ao atirar
+    - low_lifes: toca em loop enquanto você estiver com 3 ou menos vidas durante o gameplay
+    - boss_final: toca por ~5 segundos quando o chefe aparece
+    - collect_star: quando coleta uma estrela
+    - gameover: na tela de Game Over
+    - load_levels: toca em loop na tela de “Fase vencida” (espera entre fases)
+    - boss_explosion: quando o chefe é derrotado
+    - pause_game: toca em loop enquanto o jogo está pausado
+    - space_bridge: toca em loop nos menus de “Escolher dificuldade” e “Configurações”
+- Ducking automático:
+    - Enquanto load_levels toca (tela de espera entre fases), os outros sons e a música são temporariamente rebaixados para destacar o som de espera
+    - Ao iniciar a próxima fase, tudo volta ao volume normal
+- Robustez de volume:
+    - Os novos SFX não dependem apenas do volume/flag de “point” — eles usam como base o maior volume entre os sliders de SFX (point/hit/shoot),
+      garantindo audibilidade
+    - Alguns sons críticos (ex.: do chefe) têm ajuste de volume imediato para permanecerem audíveis mesmo se SFX base estiverem desligados
+
+## Salvamento e Carregamento
+
+O savegame (arquivo JSON) fica em `SpaceAtaque/savegame.json` e contém:
+
+- difficulty, score, lives, phase
+- posição do jogador
+- items_collected, boss_defeated e highscore
+- volumes e sound_enabled (configurações de áudio)
+
+Quando ocorre salvamento:
+
+- Ao pausar e escolher “Salvar e voltar ao menu” ou “Salvar e fechar o jogo”
+- Ao entrar em Game Over
+- Ao entrar na Tela de Vitória do jogo
+
+Carregamento:
+
+- A opção “Carregar jogo salvo” no menu principal restaura o progresso e aplica as configurações de som
+
+## Estrutura do Projeto (essencial)
+
+```
+PyGameBasico/
+├── SpaceAtaque/
+│   ├── Assets/                # Imagens, sons, fundos, sprites
+│   ├── spaceAtaque.py          # Jogo Space Ataque (principal)
+│   └── savegame.json          # Save do jogo
+├── setup_env.sh / setup_env.ps1
+├── run.sh / run.ps1
+└── requirements.txt
+```
+
+Outros diretórios contêm exemplos adicionais (CatchTheCoin, Minesweeper, etc.). Você pode executá-los com os mesmos scripts `run.sh`/`run.ps1`.
+
+## Dicas e Solução de Problemas
+
+- “No module named 'pygame'”
+    - Use o venv do projeto e os scripts de execução
+    - Linux/macOS: `bash run.sh SpaceAtaque/spaceAtaque.py`
+    - Windows: `pwsh -f run.ps1 SpaceAtaque/spaceAtaque.py`
+- PEP 668 — “externally-managed-environment”
+    - Evite instalar pacotes no Python do sistema
+    - Use `setup_env.sh`/`setup_env.ps1` para criar o venv do projeto e instalar as dependências
+- Sem áudio no Linux?
+    - Verifique se o mixer do sistema não está mutado
+    - Em algumas distros, pode ser necessário instalar bibliotecas de áudio SDL (por exemplo, `libsdl2-mixer` e codecs). O PyGame normalmente traz o
+      necessário, mas o suporte do SO é importante
+- Música não toca?
+    - Abra Configurações no menu principal e verifique se “Música” está ligada e com volume acima de 0
+
+## Instalação Manual (alternativa)
+
+1) Verifique Python e pip:
 
 - Linux/macOS: `python3 --version` e `python3 -m pip --version`
 - Windows: `py --version` e `py -m pip --version`
 
-2) (Recomendado) Crie e ative um ambiente virtual:
+2) Crie/ative o ambiente virtual:
 
 - Linux/macOS:
     - Criar: `python3 -m venv .venv`
     - Ativar: `source .venv/bin/activate`
 - Windows (PowerShell):
     - Criar: `py -m venv .venv`
-    - Ativar: `.venv\Scripts\Activate.ps1`
+    - Ativar: `.venv\\Scripts\\Activate.ps1`
 
 3) Instale as dependências:
 
@@ -69,97 +180,13 @@ pwsh -f run.ps1 janelaBasico.py    # roda arquivo específico
 pip install -r requirements.txt
 ```
 
-Isso instalará o PyGame (versão 2.5.0 ou superior).
-
-## Executando os Exemplos
-
-Todos os scripts podem ser executados a partir da raiz do projeto. Alguns exemplos disponíveis:
-
-- `testeMostraGrade.py` - Grade centralizada
-- `janelaBasico.py` - Janela básica PyGame
-- `janelaComSprite.py` - Exemplo com sprites
-- `janelaComSpriteMovimentacao.py` - Sprites com movimentação
-- `janelaTeste001.py` - Teste de janela
-- `maze001.py` - Labirinto
-- `CatchTheCoin/mainGame.py` - Jogo de coletar moedas
-- `Minesweeper/gameMain.py` - Campo minado
-- `SpaceEscape/spaceScape.py` - Jogo espacial
-
-Para rodar um exemplo (após ativar o venv):
+4) Rode o jogo:
 
 ```bash
-# Linux/macOS
-python3 testeMostraGrade.py
-
-# Windows
-py testeMostraGrade.py
+python SpaceAtaque/spaceAtaque.py   # Windows (dentro do venv)
+python3 SpaceAtaque/spaceAtaque.py  # Linux/macOS (dentro do venv)
 ```
 
-Ou use os scripts de conveniência:
+---
 
-```bash
-# Linux/macOS
-bash run.sh testeMostraGrade.py
-
-# Windows
-pwsh -f run.ps1 testeMostraGrade.py
-```
-
-## Estrutura do Projeto
-
-```
-PyGameBasico/
-├── *.py                     # Scripts de exemplo na raiz
-├── CatchTheCoin/            # Jogo de coletar moedas
-│   ├── Assets/              # Recursos do jogo
-│   └── mainGame.py          # Script principal
-├── Minesweeper/             # Campo minado
-│   └── gameMain.py          # Script principal
-├── SpaceEscape/             # Jogo espacial
-│   └── spaceScape.py        # Script principal
-├── requirements.txt         # Dependências Python
-├── setup_env.sh/.ps1        # Scripts de configuração
-└── run.sh/.ps1              # Scripts de execução rápida
-```
-
-## Erro "No module named 'pygame'" — Como resolver rapidamente
-
-Se ao executar um script você vir o erro "No module named 'pygame'", significa que o PyGame não está instalado no interpretador atual. Use uma destas
-opções:
-
-- Opção 1 (recomendada): usar o ambiente virtual do projeto e rodar automaticamente:
-    - Linux/macOS: `bash run.sh` (roda testeMostraGrade.py) ou `bash run.sh SEU_SCRIPT.py`
-    - Windows: `pwsh -f run.ps1` ou `pwsh -f run.ps1 SEU_SCRIPT.py`
-
-- Opção 2: preparar manualmente o venv e instalar dependências:
-    - Linux/macOS: `bash setup_env.sh`
-    - Windows: `pwsh -f setup_env.ps1`
-      Em seguida rode: `bash setup_env.sh run SEU_SCRIPT.py` ou ative o venv e use `python SEU_SCRIPT.py`.
-
-- Opção 3: se estiver usando uma IDE e surgir um aviso pedindo privilégios de administrador para instalar pacotes (por exemplo, no Python 3.12 do
-  sistema), escolha "Configure" e selecione o interpretador do projeto como o Python dentro de `.venv` (caminho `.venv/bin/python` no Linux/macOS ou
-  `.venv\Scripts\python.exe` no Windows). Assim você evita instalar em áreas protegidas do sistema.
-
-Após qualquer uma das opções acima, o comando `python -c "import pygame; print(pygame.__version__)"` dentro do venv deve funcionar sem erros.
-
-## Erro: "externally-managed-environment" (PEP 668) — Como resolver
-
-Esse erro ocorre quando você tenta instalar pacotes (ex.: pygame) no Python do sistema (ex.: Python 3.12 em Debian/Ubuntu) que está marcado como "
-gerenciado externamente". A instalação direta com pip é bloqueada para proteger o ambiente do sistema.
-
-Soluções recomendadas (sem exigir permissões administrativas):
-
-- Opção rápida (recomendada): use o venv do projeto e rode automaticamente:
-    - Linux/macOS: `bash run.sh` (padrão roda testeMostraGrade.py) ou `bash run.sh SEU_SCRIPT.py`
-    - Windows: `pwsh -f run.ps1` ou `pwsh -f run.ps1 SEU_SCRIPT.py`
-- Preparar manualmente o venv e instalar dependências:
-    - Linux/macOS: `bash setup_env.sh`
-    - Windows: `pwsh -f setup_env.ps1`
-      Depois rode: `bash setup_env.sh run SEU_SCRIPT.py` ou ative o venv e use `python SEU_SCRIPT.py`.
-- IDE (PyCharm/VS Code): configure o interpretador do projeto apontando para o Python do venv, e não para o Python do sistema:
-    - Linux/macOS: selecione `.venv/bin/python`
-    - Windows: selecione `.venv\Scripts\python.exe`
-      Em seguida, instale as dependências usando o terminal do venv ou a própria IDE (desde que esteja usando o interpretador do venv).
-
-Evite instalar no Python do sistema. Caso entenda os riscos e deseje forçar a instalação no sistema, o pip permite `--break-system-packages`, mas NÃO
-é recomendado e pode quebrar o Python do seu sistema. Prefira sempre o venv do projeto.
+Bom jogo! 🚀 Se encontrar algum problema ou tiver sugestões, abra uma issue ou envie um PR.

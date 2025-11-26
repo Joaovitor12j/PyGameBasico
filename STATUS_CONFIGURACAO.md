@@ -30,15 +30,12 @@ Data: 27 de outubro de 2025
 
 #### Executar um exemplo:
 ```bash
-bash run.sh                           # Exemplo padrão (grade)
-bash run.sh CatchTheCoin/mainGame.py  # Jogo de moedas
-bash run.sh Minesweeper/gameMain.py   # Campo minado
-bash run.sh SpaceEscape/spaceScape.py # Jogo espacial
+bash run.sh SpaceAtaque/spaceAtaque.py # Jogo espacial
 ```
 
 #### Ou diretamente:
 ```bash
-.venv/bin/python testeMostraGrade.py
+.venv/bin/python SpaceAtaque/spaceAtaque.py
 ```
 
 ### Estrutura do Projeto:
@@ -47,9 +44,7 @@ bash run.sh SpaceEscape/spaceScape.py # Jogo espacial
 PyGameBasico/
 ├── .venv/                    # Ambiente virtual (NÃO commitar)
 │   └── bin/python_real       # Wrapper especial para Cursor
-├── CatchTheCoin/             # 🎮 Jogo de coletar moedas
-├── Minesweeper/              # 💣 Campo minado
-├── SpaceEscape/              # 🚀 Jogo espacial
+├── SpaceAtaque/              # 🚀 Jogo espacial
 ├── *.py                      # Exemplos básicos
 ├── setup_env.sh              # Script de configuração
 ├── run.sh                    # Script de execução
