@@ -457,7 +457,7 @@ def _normalize_volume_value(value) -> float:
         raise ValueError(f"Volume float fora do intervalo 0.0..1.0: {f}")
     return f
 
-class SpaceEscape:
+class SpaceAtaque:
     """Classe principal do jogo"""
     def __init__(self):
         pygame.init()
@@ -1276,7 +1276,6 @@ class SpaceEscape:
             return
         if self.items_collected < self._get_phase_required_items():
             return
-        # Cria boss com sprite inicial 'sleep'
         boss_sprite = Boss(self.boss_img_sleep, self.config.WIDTH)
         self.boss_group.add(boss_sprite)
         self.all_sprites.add(boss_sprite)
@@ -1284,11 +1283,9 @@ class SpaceEscape:
         self.boss_hp = 100.0
         self.boss_spawned = True
         self.boss_next_move_threshold = 90.0
-        # Som de boss_final por 5 segundos
         try:
             if hasattr(self, 'sound_boss_final') and self.sound_boss_final:
                 self._chan_boss_final = self.sound_boss_final.play()
-                # Ajuste imediato de volume no canal
                 try:
                     point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
                     hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
@@ -1386,7 +1383,6 @@ class SpaceEscape:
         """Atualiza lógica do gameplay usando grupos de sprites"""
         keys = pygame.key.get_pressed()
 
-        # Atualiza jogadores
         if self.multiplayer and getattr(self, 'player2', None):
             self.player.update(keys, self.config.WIDTH, self.config.HEIGHT)
             self.player2.update(keys, self.config.WIDTH, self.config.HEIGHT)
@@ -1430,15 +1426,12 @@ class SpaceEscape:
         self.boss_group.update()
 
         self._spawn_boss_if_ready()
-        # Atualização dos sons dinâmicos (vidas baixas, timers)
         try:
             self._update_dynamic_sounds()
         except Exception:
             pass
 
         diff_config = DIFFICULTIES[self.difficulty].scale_for_phase(self.phase)
-
-        # --- 2. Verificação de Colisões ---
 
         aura_active = hasattr(self, 'shield_aura_group') and getattr(self, 'shield_aura_group', None) is not None and len(self.shield_aura_group) > 0
         now_ms = pygame.time.get_ticks()
@@ -1533,10 +1526,8 @@ class SpaceEscape:
                 if self.boss_hp <= 0.0 and self.boss:
                     self.boss_defeated = True
                     self.boss_spawned = False
-                    # Som de explosão do boss
                     try:
                         if hasattr(self, 'sound_boss_explosion') and self.sound_boss_explosion:
-                            # Garante volume audível mesmo se SFX base estiverem desativados
                             try:
                                 point_v = float(self.volumes.get("point", 0.0))
                                 hit_v = float(self.volumes.get("hit", 0.0))
@@ -1551,7 +1542,6 @@ class SpaceEscape:
                             self.sound_boss_explosion.play()
                     except Exception:
                         pass
-                    # Parar som boss_final se ainda estiver tocando
                     try:
                         if self._chan_boss_final:
                             self._chan_boss_final.stop()
@@ -1573,7 +1563,6 @@ class SpaceEscape:
                 try:
                     snd = getattr(self, 'sound_collect_star', None)
                     if snd:
-                        # Ajusta volume para ser audível mesmo com SFX base desativados
                         try:
                             point_v = float(self.volumes.get("point", 0.0))
                             hit_v = float(self.volumes.get("hit", 0.0))
@@ -1800,7 +1789,7 @@ class SpaceEscape:
             self.screen.blit(self.bg_menu, (0, 0))
 
             # Título
-            title = self.font_medium.render("🚀 SPACE ATAQUE 🚀", True, Colors.YELLOW)
+            title = self.font_medium.render("SPACE ATAQUE", True, Colors.YELLOW)
             self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
 
             # Highscore
@@ -2215,5 +2204,5 @@ class SpaceEscape:
 # =============================================================================
 
 if __name__ == "__main__":
-    game = SpaceEscape()
+    game = SpaceAtaque()
     game.run()
