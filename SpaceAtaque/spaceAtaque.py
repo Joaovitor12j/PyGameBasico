@@ -27,7 +27,7 @@ class GameConfig:
     WIDTH: int = 800
     HEIGHT: int = 600
     FPS: int = 60
-    TITLE: str = "🚀 Space Escape"
+    TITLE: str = "🚀 Space Ataque"
     SAVE_FILE: str = "savegame.json"
     PHASE_TARGET_BASE: int = 100
     PHASE_VICTORY_DURATION: int = 2000  # ms
@@ -298,7 +298,7 @@ class ShieldAura(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=player.rect.center)
         self.particles = max(6, particles)
         self.angles = [i * (360.0 / self.particles) for i in range(self.particles)]
-        self.angular_speed = 120.0  # graus por segundo
+        self.angular_speed = 120.0
         self.last_update_ms = pygame.time.get_ticks()
         self.color_main = color_main
         self.color_glow = color_glow
@@ -514,26 +514,23 @@ class SpaceAtaque:
         self._load_resources()
 
         # --- Grupos de Sprites ---
-        self.all_sprites = pygame.sprite.Group()       # Grupo para desenhar tudo
-        self.enemy_group = pygame.sprite.Group()      # Grupo para colisões com naves
-        self.item_group = pygame.sprite.Group()        # Grupo para colisões com itens
-        self.shield_group = pygame.sprite.Group()      # Grupo para o item de escudo
-        self.bullet_group = pygame.sprite.Group()      # Grupo para colisões com balas
-        self.explosion_group = pygame.sprite.Group()   # Grupo para animações de explosão
-        self.player_group = pygame.sprite.GroupSingle() # Grupo especial para o jogador
-        self.boss_group = pygame.sprite.GroupSingle()   # Grupo para o chefe
-        self.shield_aura_group = pygame.sprite.GroupSingle()  # Efeito visual do escudo
+        self.all_sprites = pygame.sprite.Group()                # Grupo para desenhar tudo
+        self.enemy_group = pygame.sprite.Group()                # Grupo para colisões com naves
+        self.item_group = pygame.sprite.Group()                 # Grupo para colisões com itens
+        self.shield_group = pygame.sprite.Group()               # Grupo para o item de escudo
+        self.bullet_group = pygame.sprite.Group()               # Grupo para colisões com balas
+        self.explosion_group = pygame.sprite.Group()            # Grupo para animações de explosão
+        self.player_group = pygame.sprite.GroupSingle()         # Grupo especial para o jogador
+        self.boss_group = pygame.sprite.GroupSingle()           # Grupo para o chefe
+        self.shield_aura_group = pygame.sprite.GroupSingle()    # Efeito visual do escudo
 
-        # Estado do jogo
         self.state = GameState.MENU
         
-        # Flags/estado para sons dinâmicos
         self._low_lifes_playing = False
         self._phase_wait_snd_playing = False
         self._pause_snd_playing = False
         self._space_bridge_playing = False
         self._boss_final_end_ms = None
-        # Canais para sons em loop/temporizados
         self._chan_low_lifes = None
         self._chan_phase_wait = None
         self._chan_pause = None
@@ -579,8 +576,6 @@ class SpaceAtaque:
 
     def _load_resources(self):
         """Carrega todos os recursos do jogo"""
-        # Imagens
-        # Planos de fundo por fase
         self.bg_levels = [
             self.resources.load_image("bg_level_1", ASSETS["background_level_1"], (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE),
             self.resources.load_image("bg_level_2", ASSETS["background_level_2"], (self.config.WIDTH, self.config.HEIGHT), Colors.WHITE),
@@ -615,16 +610,14 @@ class SpaceAtaque:
             "enemy_level3_2", ASSETS["enemy_level3_2"], Sizes.ENEMY, Colors.YELLOW
         )
 
-        # Item coletável
         self.item_img = self.resources.load_image(
             "item_collect", ASSETS["item_collect"], Sizes.ITEM, Colors.YELLOW
         )
-        # Shield coletável
+
         self.shield_img = self.resources.load_image(
             "shield", ASSETS["shield"], Sizes.ITEM, Colors.BLUE
         )
 
-        # Boss images
         self.boss_img_sleep = self.resources.load_image(
             "boss_sleep", ASSETS["boss_sleep"], Sizes.BOSS, Colors.RED
         )
@@ -635,12 +628,10 @@ class SpaceAtaque:
             "boss_rage", ASSETS["boss_rage"], Sizes.BOSS, Colors.RED
         )
 
-        # Sons
-        self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"]) 
+        self.sound_point = self.resources.load_sound("point", ASSETS["sound_point"])
         self.sound_hit = self.resources.load_sound("hit", ASSETS["sound_hit"]) 
         self.sound_shoot = self.resources.load_sound("shoot", ASSETS["sound_shoot"]) 
-        # Novos sons
-        self.sound_low_lifes = self.resources.load_sound("low_lifes", ASSETS["low_lifes"]) 
+        self.sound_low_lifes = self.resources.load_sound("low_lifes", ASSETS["low_lifes"])
         self.sound_boss_final = self.resources.load_sound("boss_final", ASSETS["boss_final"]) 
         self.sound_collect_star = self.resources.load_sound("collect_star", ASSETS["collect_star"]) 
         self.sound_gameover = self.resources.load_sound("gameover", ASSETS["gameover"]) 
@@ -1594,7 +1585,6 @@ class SpaceAtaque:
         if self.multiplayer and getattr(self, 'player2', None):
             process_shield_pickups(self.player2)
 
-        # --- 3. Lógica de Jogo (Spawns, Vitória) ---
         if self._is_item_enabled():
             if self.next_item_spawn_score is None:
                 self._reset_item_spawn_schedule()
@@ -1624,14 +1614,12 @@ class SpaceAtaque:
         self.explosion_group.draw(self.screen)
         self._draw_boss_health_bar()
 
-        # HUD linha 1
         hud_text = self.font_tiny.render(
             f"Pontos: {self.score}   Vidas: {self.lives}   Fase: {self.phase + 1}",
             True, Colors.WHITE
         )
         self.screen.blit(hud_text, (10, 10))
 
-        # HUD linha 2 - Objetivos da fase
         target_pts = self._get_phase_target()
         req_items = self._get_phase_required_items()
         boss_req = self._is_boss_required()
@@ -1646,15 +1634,11 @@ class SpaceAtaque:
     def draw_phase_victory(self):
         """Desenha tela de vitória da fase"""
         self.screen.blit(self._get_bg_for_current_phase(), (0, 0))
-        # Tocar som de tela de espera da fase
         try:
-            # Garante que o aviso de poucas vidas não concorra com o som da tela de espera
             self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
             if not self._phase_wait_snd_playing:
-                # Ativa ducking dos demais sons enquanto a música de espera toca
                 self._sfx_duck = 0.4
                 self._apply_volumes()
-            # Inicia mesmo com SFX base desativados e usa o maior slider para volume
             self._start_loop("sound_load_levels", "_phase_wait_snd_playing", "_chan_phase_wait", bypass_flags=True, use_any_base=True)
         except Exception:
             pass
@@ -1677,7 +1661,6 @@ class SpaceAtaque:
         self.screen.blit(timer_text,
                          (self.config.WIDTH // 2 - timer_text.get_width() // 2, 320))
 
-        # Verifica se deve avançar
         if pygame.time.get_ticks() >= self.phase_victory_end:
             self._advance_phase()
 
@@ -1686,9 +1669,7 @@ class SpaceAtaque:
         options = ["Continuar", "Salvar e voltar ao menu", "Salvar e fechar o jogo"]
         selected = 0
 
-        # Tocar som de pausa em loop
         try:
-            # interrompe aviso de poucas vidas durante a pausa
             self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
             self._start_loop("sound_pause_game", "_pause_snd_playing", "_chan_pause")
         except Exception:
@@ -1728,7 +1709,6 @@ class SpaceAtaque:
                     elif event.key in (pygame.K_UP, pygame.K_w):
                         selected = (selected - 1) % len(options)
                     elif event.key == pygame.K_ESCAPE:
-                        # Continuar
                         self.state = GameState.PLAYING
                         paused = False
                         try:
@@ -1745,7 +1725,6 @@ class SpaceAtaque:
                             except Exception:
                                 pass
                         elif choice == "Salvar e voltar ao menu":
-                            # Salva progresso atual e volta ao menu principal
                             if self.player is not None:
                                 self.save_manager.save(
                                     self.difficulty, self.score, self.lives,
@@ -1760,7 +1739,6 @@ class SpaceAtaque:
                             except Exception:
                                 pass
                         elif choice == "Salvar e fechar o jogo":
-                            # Salva progresso atual e encerra aplicação
                             if self.player is not None:
                                 self.save_manager.save(
                                     self.difficulty, self.score, self.lives,
@@ -1788,16 +1766,13 @@ class SpaceAtaque:
         while self.state == GameState.MENU:
             self.screen.blit(self.bg_menu, (0, 0))
 
-            # Título
             title = self.font_medium.render("SPACE ATAQUE", True, Colors.YELLOW)
             self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 80))
 
-            # Highscore
             high = self.save_manager.get_highscore()
             hs_label = self.font_tiny.render(f"Maior pontuação: {high}", True, Colors.WHITE)
             self.screen.blit(hs_label, (self.config.WIDTH // 2 - hs_label.get_width() // 2, 150))
 
-            # Opções
             start_y = 220
             for i, opt in enumerate(menu_options):
                 color = Colors.YELLOW if i == selected else Colors.WHITE
@@ -1806,13 +1781,11 @@ class SpaceAtaque:
                                  (self.config.WIDTH // 2 - label.get_width() // 2,
                                   start_y + i * 40))
 
-            # Dificuldade atual
             diff_text = self.font_tiny.render(
                 f"Dificuldade atual: {self.difficulty}", True, Colors.WHITE
             )
             self.screen.blit(diff_text, (self.config.WIDTH // 2 - diff_text.get_width() // 2, start_y + len(menu_options) * 40 + 20))
 
-            # Mensagem temporária
             if message:
                 msg = self.font_tiny.render(message, True, Colors.WHITE)
                 self.screen.blit(msg, (self.config.WIDTH // 2 - msg.get_width() // 2, self.config.HEIGHT - 80))
@@ -1858,7 +1831,6 @@ class SpaceAtaque:
         diffs = list(DIFFICULTIES.keys())
         selected = diffs.index(self.difficulty)
         choosing = True
-        # Som de ponte espacial durante a escolha de dificuldade
         try:
             self._start_loop("sound_space_bridge", "_space_bridge_playing", "_chan_space_bridge")
         except Exception:
@@ -1920,7 +1892,6 @@ class SpaceAtaque:
         ]
         selected = 0
         choosing = True
-        # Som de ponte espacial durante a configuração do som
         try:
             self._start_loop("sound_space_bridge", "_space_bridge_playing", "_chan_space_bridge")
         except Exception:
@@ -1976,7 +1947,6 @@ class SpaceAtaque:
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         key, _ = options[selected]
                         self.sound_enabled[key] = not self.sound_enabled.get(key, True)
-                        # aplica imediatamente
                         if key == "music":
                             if self.sound_enabled[key]:
                                 try:
@@ -1996,7 +1966,6 @@ class SpaceAtaque:
 
     def run_game_over(self) -> bool:
         """Executa tela de game over. Retorna False se deve sair"""
-        # Salva jogo
         highscore = self.save_manager.save(
             self.difficulty, self.score, self.lives,
             self.phase, self.player.rect.center,
@@ -2004,7 +1973,6 @@ class SpaceAtaque:
             boss_defeated=self.boss_defeated
         )
 
-        # Parar loops e sons persistentes
         try:
             self._stop_loop("_pause_snd_playing", "_chan_pause")
             self._stop_loop("_low_lifes_playing", "_chan_low_lifes")
@@ -2018,7 +1986,6 @@ class SpaceAtaque:
         except Exception:
             pass
 
-        # Restaura ducking para normal antes de tocar o som de game over
         self._sfx_duck = 1.0
         try:
             self._apply_volumes()
@@ -2026,7 +1993,6 @@ class SpaceAtaque:
             pass
 
         pygame.mixer.music.stop()
-        # Som de game over
         try:
             if hasattr(self, 'sound_gameover') and self.sound_gameover and self._is_sfx_enabled():
                 self.sound_gameover.play()
@@ -2035,11 +2001,9 @@ class SpaceAtaque:
 
         self.screen.blit(self.bg_endgame, (0, 0))
 
-        # Título
         title = self.font_large.render("GAME OVER", True, Colors.DARK_RED)
         self.screen.blit(title, (self.config.WIDTH // 2 - title.get_width() // 2, 120))
 
-        # Informações
         labels = [
             f"Fase: {self.phase + 1}",
             f"Dificuldade: {self.difficulty}",
@@ -2164,7 +2128,6 @@ class SpaceAtaque:
                     if event.type == pygame.QUIT:
                         running = False
                     elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                        # Pausar jogo
                         self.state = GameState.PAUSED
                     elif event.type == pygame.MOUSEMOTION:
                         self.player.move_to_position(event.pos[0], event.pos[1], self.config.WIDTH, self.config.HEIGHT)
