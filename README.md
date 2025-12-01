@@ -5,6 +5,10 @@ um sistema de áudio completo com salvamento de configurações.
 
 Se você quer apenas jogar, siga o Início Rápido. Se quiser conhecer o funcionamento do jogo (fases, sons, salvamento, etc.), veja as seções abaixo.
 
+## Link do video para apresentação do jogo
+- Youtube: https://youtu.be/M7zaWu-7IM4
+- Drive: https://drive.google.com/file/d/1ipGRbkJddyYgWjsfDbQW8BlcaTdS-Qhm/view?usp=sharing
+
 ## Requisitos
 
 - Python 3.9 ou superior (recomendado 3.10+)
