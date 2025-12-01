@@ -640,7 +640,11 @@ class SpaceAtaque:
         self.sound_pause_game = self.resources.load_sound("pause_game", ASSETS["pause_game"]) 
         self.sound_space_bridge = self.resources.load_sound("space_bridge", ASSETS["space_bridge"]) 
         
-        self.resources.load_music(ASSETS["music"]) 
+        try:
+            init_music_vol = float(self.volumes.get("music", 0.3)) if self.sound_enabled.get("music", True) else 0.0
+        except Exception:
+            init_music_vol = 0.3
+        self.resources.load_music(ASSETS["music"], volume=init_music_vol)
 
         self.explosion_frames: List[pygame.Surface] = []
         try:
@@ -741,7 +745,7 @@ class SpaceAtaque:
             except Exception:
                 return 0.0
 
-        def _apply_sound_with_boost(attr_name: str, base_vol: float, apply_duck: bool = True, chan_attr: str = None):
+        def _apply_sound_with_boost(attr_name: str, base_vol: float, apply_duck: bool = True, chan_attr: str = None, apply_boost: bool = True):
             try:
                 snd = getattr(self, attr_name, None)
                 if not snd:
@@ -749,7 +753,7 @@ class SpaceAtaque:
                 key = attr_name.replace("sound_", "")
                 boost = 1.0
                 try:
-                    boost = self._sfx_boost.get(key, 1.0)
+                    boost = self._sfx_boost.get(key, 1.0) if apply_boost else 1.0
                 except Exception:
                     boost = 1.0
                 duck = self._sfx_duck if apply_duck else 1.0
@@ -789,9 +793,8 @@ class SpaceAtaque:
         _apply_sound_with_boost("sound_gameover", sfx_vol, apply_duck=True)
         _apply_sound_with_boost("sound_boss_explosion", boss_base, apply_duck=True)
         _apply_sound_with_boost("sound_pause_game", sfx_vol, apply_duck=True, chan_attr="_chan_pause")
-        _apply_sound_with_boost("sound_space_bridge", sfx_vol, apply_duck=True, chan_attr="_chan_space_bridge")
-        load_base = sfx_vol if sfx_vol > 0.0 else sfx_vol_any
-        _apply_sound_with_boost("sound_load_levels", load_base, apply_duck=False, chan_attr="_chan_phase_wait")
+        _apply_sound_with_boost("sound_space_bridge", music_base_vol, apply_duck=True, chan_attr="_chan_space_bridge", apply_boost=False)
+        _apply_sound_with_boost("sound_load_levels", music_base_vol, apply_duck=False, chan_attr="_chan_phase_wait", apply_boost=False)
 
         try:
             music_vol = _clamp01(music_base_vol * (self._sfx_duck if self.sound_enabled.get("music", True) else 1.0))
@@ -824,25 +827,31 @@ class SpaceAtaque:
                     setattr(self, flag_attr, True)
                     setattr(self, chan_attr, ch)
                     try:
-                        if use_any_base:
-                            point_vol = float(self.volumes.get("point", 0.0))
-                            hit_vol = float(self.volumes.get("hit", 0.0))
-                            shoot_vol = float(self.volumes.get("shoot", 0.0))
+                        if sound_attr in ("sound_space_bridge", "sound_load_levels"):
+                            music_base = self.volumes.get("music", 0.0) if self.sound_enabled.get("music", True) else 0.0
+                            apply_duck = (sound_attr == "sound_space_bridge")
+                            duck = self._sfx_duck if apply_duck else 1.0
+                            vol = max(0.0, min(1.0, float(music_base) * float(duck)))
                         else:
-                            point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
-                            hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
-                            shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
-                        sfx_base = max([v for v in (point_vol, hit_vol, shoot_vol)]) if (use_any_base or any(
-                            [self.sound_enabled.get(k, True) for k in ("point", "hit", "shoot")]
-                        )) else 0.0
-                        key = sound_attr.replace("sound_", "")
-                        try:
-                            boost = self._sfx_boost.get(key, 1.0)
-                        except Exception:
-                            boost = 1.0
-                        apply_duck = (sound_attr != "sound_load_levels")
-                        duck = self._sfx_duck if apply_duck else 1.0
-                        vol = max(0.0, min(1.0, float(sfx_base) * float(boost) * float(duck)))
+                            if use_any_base:
+                                point_vol = float(self.volumes.get("point", 0.0))
+                                hit_vol = float(self.volumes.get("hit", 0.0))
+                                shoot_vol = float(self.volumes.get("shoot", 0.0))
+                            else:
+                                point_vol = self.volumes.get("point", 0.0) if self.sound_enabled.get("point", True) else 0.0
+                                hit_vol = self.volumes.get("hit", 0.0) if self.sound_enabled.get("hit", True) else 0.0
+                                shoot_vol = self.volumes.get("shoot", 0.0) if self.sound_enabled.get("shoot", True) else 0.0
+                            sfx_base = max([v for v in (point_vol, hit_vol, shoot_vol)]) if (use_any_base or any(
+                                [self.sound_enabled.get(k, True) for k in ("point", "hit", "shoot")]
+                            )) else 0.0
+                            key = sound_attr.replace("sound_", "")
+                            try:
+                                boost = self._sfx_boost.get(key, 1.0)
+                            except Exception:
+                                boost = 1.0
+                            apply_duck = (sound_attr != "sound_load_levels")
+                            duck = self._sfx_duck if apply_duck else 1.0
+                            vol = max(0.0, min(1.0, float(sfx_base) * float(boost) * float(duck)))
                         if ch:
                             ch.set_volume(vol)
                     except Exception:
